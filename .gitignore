@@ -210,3 +210,7 @@ __marimo__/
 node_modules/
 dist/
 .vite/
+
+requirement.txt
+mission_list.txt
+need.txt
