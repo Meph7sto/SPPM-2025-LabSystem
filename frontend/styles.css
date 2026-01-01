@@ -579,8 +579,9 @@ body[data-mode="admin"] .borrower-only {
 }
 
 [data-animate] {
-  animation: fadeUp 0.8s ease both;
-  animation-delay: var(--delay, 0s);
+  animation: none;
+  /* animation: fadeUp 0.8s ease both; */
+  /* animation-delay: var(--delay, 0s); */
 }
 
 @keyframes fadeUp {

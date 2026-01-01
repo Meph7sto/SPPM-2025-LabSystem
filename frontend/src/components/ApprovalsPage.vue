@@ -88,6 +88,18 @@
                 <span class="chip chip-neutral">{{ item.step }}</span>
                 <span v-if="item.conflict" class="chip chip-alert">冲突</span>
               </div>
+              <p class="chain-caption">审批链条</p>
+              <div class="approval-chain">
+                <div
+                  v-for="(node, index) in item.chain"
+                  :key="`${item.id}-${index}`"
+                  class="chain-step"
+                  :class="chainClass(node.state)"
+                >
+                  <span class="chain-label">{{ node.label }}</span>
+                  <span class="chain-role">{{ node.role }}</span>
+                </div>
+              </div>
             </div>
             <div class="approval-actions">
               <button type="button" class="primary" @click="setStatus(item.id, '通过')">
@@ -120,6 +132,11 @@ const approvals = ref([
     priority: "校内优先",
     conflict: true,
     status: "待处理",
+    chain: [
+      { label: "导师审批", role: "指导教师", state: "current" },
+      { label: "管理员审批", role: "设备管理员", state: "pending" },
+      { label: "可借出", role: "实验室", state: "pending" },
+    ],
   },
   {
     id: "A-2002",
@@ -129,6 +146,10 @@ const approvals = ref([
     priority: "校内优先",
     conflict: false,
     status: "待处理",
+    chain: [
+      { label: "管理员审批", role: "设备管理员", state: "current" },
+      { label: "可借出", role: "实验室", state: "pending" },
+    ],
   },
   {
     id: "A-2003",
@@ -138,6 +159,13 @@ const approvals = ref([
     priority: "校外缴费",
     conflict: false,
     status: "待处理",
+    chain: [
+      { label: "管理员初审", role: "设备管理员", state: "done" },
+      { label: "负责人审批", role: "实验室负责人", state: "current" },
+      { label: "缴费确认", role: "财务系统", state: "pending" },
+      { label: "最终确认", role: "设备管理员", state: "pending" },
+      { label: "可借出", role: "实验室", state: "pending" },
+    ],
   },
 ]);
 
@@ -145,6 +173,12 @@ const priorityClass = (priority) => {
   if (priority === "校内优先") return "chip-good";
   if (priority === "校外缴费") return "chip-warn";
   return "chip-neutral";
+};
+
+const chainClass = (state) => {
+  if (state === "done") return "chain-done";
+  if (state === "current") return "chain-current";
+  return "chain-pending";
 };
 
 const setStatus = (id, status) => {

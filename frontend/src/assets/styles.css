@@ -11,10 +11,10 @@
   --teal: #2f8f89;
   --signal: #c45b60;
   --glow: rgba(196, 105, 47, 0.2);
-  --shadow: 0 18px 35px rgba(27, 36, 44, 0.15);
-  --radius-lg: 24px;
-  --radius-md: 16px;
-  --radius-sm: 10px;
+  --shadow: none;
+  --radius-lg: 0;
+  --radius-md: 0;
+  --radius-sm: 0;
 }
 
 * {
@@ -92,7 +92,7 @@ select {
 .rail-nav a,
 .rail-link {
   padding: 10px 12px;
-  border-radius: 999px;
+  border-radius: 0;
   background: transparent;
   color: rgba(28, 40, 52, 0.75);
   border: none;
@@ -158,7 +158,7 @@ select {
   background: transparent;
   color: rgba(28, 40, 52, 0.7);
   padding: 10px 0;
-  border-radius: 999px;
+  border-radius: 0;
   cursor: pointer;
   transition: all 0.3s ease;
 }
@@ -167,7 +167,7 @@ select {
   background: rgba(196, 105, 47, 0.2);
   color: #1f140e;
   border-color: rgba(196, 105, 47, 0.8);
-  box-shadow: 0 12px 25px var(--glow);
+  box-shadow: none;
 }
 
 .rail-footer {
@@ -236,6 +236,11 @@ select {
   border: 1px solid rgba(28, 40, 52, 0.1);
 }
 
+.hero.head-hero {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.9), rgba(47, 143, 137, 0.18));
+  border-color: rgba(47, 143, 137, 0.25);
+}
+
 .eyebrow {
   text-transform: uppercase;
   letter-spacing: 2.5px;
@@ -266,7 +271,7 @@ select {
 .primary,
 .ghost {
   padding: 12px 20px;
-  border-radius: 999px;
+  border-radius: 0;
   border: none;
   cursor: pointer;
   font-size: 14px;
@@ -277,7 +282,7 @@ select {
 .primary {
   background: var(--accent);
   color: #111;
-  box-shadow: 0 14px 30px rgba(196, 105, 47, 0.4);
+  box-shadow: none;
 }
 
 .primary:hover {
@@ -292,7 +297,7 @@ select {
 
 .danger {
   padding: 10px 18px;
-  border-radius: 999px;
+  border-radius: 0;
   border: 1px solid rgba(196, 91, 96, 0.55);
   background: rgba(196, 91, 96, 0.2);
   color: #3a0e10;
@@ -316,7 +321,7 @@ select {
 
 .ribbon-step {
   padding: 8px 14px;
-  border-radius: 999px;
+  border-radius: 0;
   font-size: 12px;
   font-family: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
   background: rgba(28, 40, 52, 0.08);
@@ -368,7 +373,7 @@ select {
 
 .signal {
   height: 8px;
-  border-radius: 999px;
+  border-radius: 0;
   background: rgba(28, 40, 52, 0.12);
 }
 
@@ -396,7 +401,7 @@ select {
   border-radius: var(--radius-md);
   background: rgba(255, 255, 255, 0.92);
   border: 1px solid rgba(28, 40, 52, 0.12);
-  box-shadow: 0 16px 30px rgba(27, 36, 44, 0.12);
+  box-shadow: none;
 }
 
 .card.wide {
@@ -428,7 +433,7 @@ select {
 .chip {
   display: inline-flex;
   padding: 6px 12px;
-  border-radius: 999px;
+  border-radius: 0;
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 1px;
@@ -580,12 +585,13 @@ select {
 
 .notice-item {
   align-items: center;
+  justify-content: flex-start;
 }
 
 .notice-dot {
   width: 8px;
   height: 8px;
-  border-radius: 50%;
+  border-radius: 0;
   background: var(--accent);
   margin-top: 2px;
 }
@@ -735,6 +741,96 @@ select {
   color: rgba(28, 40, 52, 0.6);
 }
 
+.chain-caption {
+  margin: 12px 0 6px;
+  font-size: 11px;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: rgba(28, 40, 52, 0.55);
+}
+
+.approval-chain {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+}
+
+.chain-step {
+  position: relative;
+  display: grid;
+  gap: 2px;
+  padding: 8px 14px 8px 30px;
+  border-radius: 0;
+  border: 1px solid rgba(28, 40, 52, 0.12);
+  background: rgba(255, 255, 255, 0.9);
+  font-family: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-size: 12px;
+  color: rgba(28, 40, 52, 0.8);
+}
+
+.chain-step::before {
+  content: "";
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 10px;
+  height: 10px;
+  border-radius: 0;
+  background: rgba(28, 40, 52, 0.35);
+}
+
+.chain-step::after {
+  content: ">";
+  position: absolute;
+  right: -10px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: rgba(28, 40, 52, 0.35);
+  font-size: 12px;
+}
+
+.chain-step:last-child::after {
+  content: "";
+}
+
+.chain-label {
+  font-weight: 600;
+}
+
+.chain-role {
+  font-size: 11px;
+  color: rgba(28, 40, 52, 0.55);
+}
+
+.chain-done {
+  background: rgba(47, 143, 137, 0.18);
+  border-color: rgba(47, 143, 137, 0.5);
+}
+
+.chain-done::before {
+  background: rgba(47, 143, 137, 0.9);
+}
+
+.chain-current {
+  background: rgba(196, 105, 47, 0.2);
+  border-color: rgba(196, 105, 47, 0.6);
+  box-shadow: none;
+}
+
+.chain-current::before {
+  background: rgba(196, 105, 47, 0.95);
+}
+
+.chain-pending {
+  background: rgba(28, 40, 52, 0.08);
+  border-color: rgba(28, 40, 52, 0.18);
+}
+
+.chain-pending::before {
+  background: rgba(28, 40, 52, 0.35);
+}
+
 .report-item {
   grid-template-columns: 1fr auto;
   align-items: center;
@@ -743,6 +839,115 @@ select {
 .payment-row {
   grid-template-columns: 2fr 1fr 1fr;
   align-items: center;
+}
+
+.student-toolbar {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-bottom: 18px;
+}
+
+.student-toolbar input,
+.student-toolbar select {
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid rgba(28, 40, 52, 0.2);
+  color: var(--ink-950);
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  min-width: 220px;
+}
+
+.student-table {
+  display: grid;
+  gap: 12px;
+}
+
+.student-row {
+  display: grid;
+  grid-template-columns: 2fr 1fr auto;
+  gap: 14px;
+  align-items: center;
+  padding: 14px 16px;
+  border-radius: var(--radius-sm);
+  background: rgba(28, 40, 52, 0.06);
+  border: 1px solid rgba(28, 40, 52, 0.1);
+}
+
+.student-row h3 {
+  margin: 0 0 4px;
+  font-size: 16px;
+  font-family: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+
+.student-row p {
+  margin: 0;
+  font-size: 12px;
+  color: rgba(28, 40, 52, 0.6);
+}
+
+.student-meta {
+  display: grid;
+  gap: 6px;
+  justify-items: end;
+  text-align: right;
+}
+
+.student-meta .meta-title {
+  margin-bottom: 0;
+}
+
+.student-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.student-detail {
+  margin-top: 16px;
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border-radius: var(--radius-sm);
+  background: rgba(47, 143, 137, 0.08);
+  border: 1px solid rgba(47, 143, 137, 0.2);
+}
+
+.upload-panel {
+  display: grid;
+  gap: 16px;
+}
+
+.upload-drop {
+  display: grid;
+  gap: 6px;
+  padding: 16px;
+  border-radius: var(--radius-sm);
+  border: 1px dashed rgba(28, 40, 52, 0.3);
+  background: rgba(255, 255, 255, 0.75);
+  text-align: center;
+  cursor: pointer;
+}
+
+.upload-drop input {
+  display: none;
+}
+
+.upload-title {
+  font-size: 13px;
+  color: rgba(28, 40, 52, 0.8);
+}
+
+.upload-meta {
+  font-size: 11px;
+  color: rgba(28, 40, 52, 0.6);
+}
+
+.payment-detail {
+  margin-top: 16px;
 }
 
 .empty-state {
@@ -754,7 +959,7 @@ select {
   border: 1px dashed rgba(28, 40, 52, 0.2);
 }
 
-.rule-list + .ghost {
+.rule-list+.ghost {
   margin-top: 16px;
 }
 
@@ -788,7 +993,7 @@ select {
 .progress-ring {
   width: 84px;
   height: 84px;
-  border-radius: 50%;
+  border-radius: 0;
   background: conic-gradient(var(--accent) calc(var(--value) * 360deg), rgba(28, 40, 52, 0.12) 0);
   position: relative;
 }
@@ -797,7 +1002,7 @@ select {
   content: "";
   position: absolute;
   inset: 10px;
-  border-radius: 50%;
+  border-radius: 0;
   background: rgba(247, 242, 232, 0.95);
 }
 
@@ -812,7 +1017,7 @@ select {
   width: min(1100px, 100%);
   background: rgba(255, 255, 255, 0.92);
   border: 1px solid rgba(28, 40, 52, 0.12);
-  border-radius: 28px;
+  border-radius: 0;
   box-shadow: var(--shadow);
   padding: 36px;
   display: grid;
@@ -883,10 +1088,20 @@ select {
   padding: 12px 14px;
   display: flex;
   justify-content: space-between;
+  align-items: flex-start;
   gap: 10px;
   text-align: left;
   cursor: pointer;
   transition: transform 0.2s ease, box-shadow 0.2s ease, border 0.2s ease;
+}
+
+.role-card>div {
+  flex: 1;
+}
+
+.role-card .chip {
+  flex-shrink: 0;
+  margin-top: 2px;
 }
 
 .role-card h3 {
@@ -898,12 +1113,13 @@ select {
   margin: 0;
   font-size: 12px;
   color: rgba(28, 40, 52, 0.6);
+  line-height: 1.4;
 }
 
 .role-card.active {
   border-color: rgba(196, 105, 47, 0.65);
   background: rgba(196, 105, 47, 0.12);
-  box-shadow: 0 10px 18px rgba(196, 105, 47, 0.18);
+  box-shadow: none;
   transform: translateY(-2px);
 }
 
@@ -954,9 +1170,14 @@ select {
   display: none;
 }
 
+.app[data-mode="head"] .borrower-only {
+  display: none;
+}
+
 [data-animate] {
-  animation: fadeUp 0.8s ease both;
-  animation-delay: var(--delay, 0s);
+  animation: none;
+  /* animation: fadeUp 0.8s ease both; */
+  /* animation-delay: var(--delay, 0s); */
 }
 
 @keyframes fadeUp {
@@ -964,6 +1185,7 @@ select {
     opacity: 0;
     transform: translateY(18px);
   }
+
   to {
     opacity: 1;
     transform: translateY(0);
@@ -1017,7 +1239,8 @@ select {
   }
 
   .reservation-item,
-  .payment-row {
+  .payment-row,
+  .student-row {
     grid-template-columns: 1fr;
   }
 }
