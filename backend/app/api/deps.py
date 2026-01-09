@@ -16,6 +16,10 @@ def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(_auth_scheme),
     db: Session = Depends(get_db),
 ) -> User:
+    """
+    获取当前登录用户的依赖项。
+    验证 JWT 令牌并检索用户信息。
+    """
     token = credentials.credentials
     try:
         payload = decode_access_token(token)
@@ -40,6 +44,10 @@ def get_current_user(
 
 
 def require_roles(*roles: UserRole):
+    """
+    基于角色的访问控制依赖项工厂。
+    创建一个检查用户是否具有指定角色之一的依赖项。
+    """
     def dependency(user: User = Depends(get_current_user)) -> User:
         if user.role not in roles:
             raise HTTPException(
@@ -52,6 +60,10 @@ def require_roles(*roles: UserRole):
 
 
 def require_borrower_types(*types: BorrowerType):
+    """
+    基于借阅者类型的访问控制依赖项工厂。
+    创建一个检查用户是否具有指定借阅者类型之一的依赖项。
+    """
     def dependency(user: User = Depends(get_current_user)) -> User:
         if user.borrower_type not in types:
             raise HTTPException(
