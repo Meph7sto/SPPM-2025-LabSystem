@@ -214,3 +214,8 @@ dist/
 requirement.txt
 mission_list.txt
 need.txt
+
+# Data
+data/
+*.db
+*.db-journal

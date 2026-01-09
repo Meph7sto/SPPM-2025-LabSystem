@@ -28,6 +28,10 @@ def hash_password(password: str) -> str:
     )
 
 
+def get_password_hash(password: str) -> str:
+    return hash_password(password)
+
+
 def verify_password(password: str, stored_hash: str) -> bool:
     try:
         salt_b64, digest_b64 = stored_hash.split("$", 1)

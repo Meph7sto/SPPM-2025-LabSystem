@@ -150,5 +150,10 @@ onMounted(() => {
     timeStyle: "short",
   });
   timestamp.value = `更新于 ${formatter.format(new Date())}`;
+
+  // 监听从 ProfileView 触发的导航事件
+  window.addEventListener('navigate-to-reservations', () => {
+    activePage.value = 'my-reservations';
+  });
 });
 </script>
