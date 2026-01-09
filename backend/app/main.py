@@ -3,7 +3,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from .api.v1 import router as v1_router
+from .api.v1.router import router as v1_router
 from .core.config import settings
 from .core.errors import AppError, ErrorCode
 from .core.response import error, ok
