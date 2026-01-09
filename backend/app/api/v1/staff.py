@@ -20,6 +20,11 @@ from ..deps import require_roles
 
 router = APIRouter(prefix="/staff")
 
+"""
+人员台账管理模块。
+提供教师、学生、校外人员的 CRUD 接口。
+主要供管理员和负责人使用。
+"""
 
 # ==================== 教师台账 CRUD ====================
 
@@ -35,7 +40,7 @@ def create_teacher(
     if db.execute(stmt).scalar_one_or_none():
         raise AppError(ErrorCode.INVALID_REQUEST, "教师工号已存在")
     
-    # 使用工号作为账号
+    # 生成账号：T + 工号
     account = f"T{payload.teacher_no}"
     stmt = select(User).where(User.account == account)
     if db.execute(stmt).scalar_one_or_none():
@@ -67,7 +72,7 @@ def list_teachers(
     current_user: User = Depends(require_roles(UserRole.ADMIN, UserRole.HEAD)),
     db: Session = Depends(get_db),
 ) -> dict:
-    """获取教师台账列表（管理员/负责人）"""
+    """获取教师台账列表"""
     stmt = select(User).where(
         User.role == UserRole.BORROWER,
         User.borrower_type == BorrowerType.TEACHER
@@ -81,7 +86,7 @@ def list_teachers(
     if college:
         stmt = stmt.where(User.college.ilike(f"%{college}%"))
     
-    # 获取总数
+    # 总数
     count_stmt = select(func.count()).select_from(stmt.subquery())
     total = db.execute(count_stmt).scalar() or 0
     
@@ -103,7 +108,7 @@ def get_teacher(
     current_user: User = Depends(require_roles(UserRole.ADMIN, UserRole.HEAD)),
     db: Session = Depends(get_db),
 ) -> dict:
-    """获取教师详情（管理员/负责人）"""
+    """获取教师详情"""
     teacher = db.get(User, teacher_id)
     if not teacher or teacher.borrower_type != BorrowerType.TEACHER:
         raise NotFoundError("教师不存在")
@@ -117,7 +122,7 @@ def update_teacher(
     current_user: User = Depends(require_roles(UserRole.ADMIN, UserRole.HEAD)),
     db: Session = Depends(get_db),
 ) -> dict:
-    """更新教师台账（管理员/负责人）"""
+    """更新教师信息"""
     teacher = db.get(User, teacher_id)
     if not teacher or teacher.borrower_type != BorrowerType.TEACHER:
         raise NotFoundError("教师不存在")
@@ -137,7 +142,7 @@ def delete_teacher(
     current_user: User = Depends(require_roles(UserRole.ADMIN, UserRole.HEAD)),
     db: Session = Depends(get_db),
 ) -> dict:
-    """删除教师台账（管理员/负责人）"""
+    """删除教师"""
     teacher = db.get(User, teacher_id)
     if not teacher or teacher.borrower_type != BorrowerType.TEACHER:
         raise NotFoundError("教师不存在")
@@ -166,7 +171,7 @@ def create_student(
     if not db.execute(stmt).scalar_one_or_none():
         raise AppError(ErrorCode.INVALID_REQUEST, "导师工号不存在")
     
-    # 使用学号作为账号
+    # 生成账号：S + 学号
     account = f"S{payload.student_no}"
     stmt = select(User).where(User.account == account)
     if db.execute(stmt).scalar_one_or_none():
@@ -200,7 +205,7 @@ def list_students(
     current_user: User = Depends(require_roles(UserRole.ADMIN, UserRole.HEAD)),
     db: Session = Depends(get_db),
 ) -> dict:
-    """获取学生台账列表（管理员/负责人）"""
+    """获取学生台账列表"""
     stmt = select(User).where(
         User.role == UserRole.BORROWER,
         User.borrower_type == BorrowerType.STUDENT
@@ -216,7 +221,7 @@ def list_students(
     if advisor_no:
         stmt = stmt.where(User.advisor_no == advisor_no)
     
-    # 获取总数
+    # 总数
     count_stmt = select(func.count()).select_from(stmt.subquery())
     total = db.execute(count_stmt).scalar() or 0
     
@@ -238,7 +243,7 @@ def get_student(
     current_user: User = Depends(require_roles(UserRole.ADMIN, UserRole.HEAD)),
     db: Session = Depends(get_db),
 ) -> dict:
-    """获取学生详情（管理员/负责人）"""
+    """获取学生详情"""
     student = db.get(User, student_id)
     if not student or student.borrower_type != BorrowerType.STUDENT:
         raise NotFoundError("学生不存在")
@@ -252,7 +257,7 @@ def update_student(
     current_user: User = Depends(require_roles(UserRole.ADMIN, UserRole.HEAD)),
     db: Session = Depends(get_db),
 ) -> dict:
-    """更新学生台账（管理员/负责人）"""
+    """更新学生信息"""
     student = db.get(User, student_id)
     if not student or student.borrower_type != BorrowerType.STUDENT:
         raise NotFoundError("学生不存在")
@@ -279,7 +284,7 @@ def delete_student(
     current_user: User = Depends(require_roles(UserRole.ADMIN, UserRole.HEAD)),
     db: Session = Depends(get_db),
 ) -> dict:
-    """删除学生台账（管理员/负责人）"""
+    """删除学生"""
     student = db.get(User, student_id)
     if not student or student.borrower_type != BorrowerType.STUDENT:
         raise NotFoundError("学生不存在")
@@ -298,7 +303,7 @@ def create_external(
     db: Session = Depends(get_db),
 ) -> dict:
     """创建校外人员台账记录（管理员/负责人）"""
-    # 使用联系方式作为账号（校外人员没有工号/学号）
+    # 生成账号：E + 联系方式
     account = f"E{payload.contact}"
     stmt = select(User).where(User.account == account)
     if db.execute(stmt).scalar_one_or_none():
@@ -328,7 +333,7 @@ def list_externals(
     current_user: User = Depends(require_roles(UserRole.ADMIN, UserRole.HEAD)),
     db: Session = Depends(get_db),
 ) -> dict:
-    """获取校外人员台账列表（管理员/负责人）"""
+    """获取校外人员台账列表"""
     stmt = select(User).where(
         User.role == UserRole.BORROWER,
         User.borrower_type == BorrowerType.EXTERNAL
@@ -340,7 +345,7 @@ def list_externals(
             (User.org_name.ilike(f"%{keyword}%"))
         )
     
-    # 获取总数
+    # 总数
     count_stmt = select(func.count()).select_from(stmt.subquery())
     total = db.execute(count_stmt).scalar() or 0
     
@@ -362,7 +367,7 @@ def get_external(
     current_user: User = Depends(require_roles(UserRole.ADMIN, UserRole.HEAD)),
     db: Session = Depends(get_db),
 ) -> dict:
-    """获取校外人员详情（管理员/负责人）"""
+    """获取校外人员详情"""
     external = db.get(User, external_id)
     if not external or external.borrower_type != BorrowerType.EXTERNAL:
         raise NotFoundError("校外人员不存在")
@@ -376,7 +381,7 @@ def update_external(
     current_user: User = Depends(require_roles(UserRole.ADMIN, UserRole.HEAD)),
     db: Session = Depends(get_db),
 ) -> dict:
-    """更新校外人员台账（管理员/负责人）"""
+    """更新校外人员信息"""
     external = db.get(User, external_id)
     if not external or external.borrower_type != BorrowerType.EXTERNAL:
         raise NotFoundError("校外人员不存在")
@@ -396,7 +401,7 @@ def delete_external(
     current_user: User = Depends(require_roles(UserRole.ADMIN, UserRole.HEAD)),
     db: Session = Depends(get_db),
 ) -> dict:
-    """删除校外人员台账（管理员/负责人）"""
+    """删除校外人员"""
     external = db.get(User, external_id)
     if not external or external.borrower_type != BorrowerType.EXTERNAL:
         raise NotFoundError("校外人员不存在")
@@ -413,7 +418,10 @@ def get_staff_stats(
     current_user: User = Depends(require_roles(UserRole.ADMIN, UserRole.HEAD)),
     db: Session = Depends(get_db),
 ) -> dict:
-    """获取人员台账统计（管理员/负责人）"""
+    """
+    获取人员台账统计数据（管理员/负责人）。
+    用于仪表盘展示各类人员数量。
+    """
     teacher_count = db.execute(
         select(func.count()).where(
             User.role == UserRole.BORROWER,
