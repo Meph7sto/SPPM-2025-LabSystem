@@ -20,6 +20,16 @@ router = APIRouter(prefix="/devices")
 
 
 def _parse_slot(date_str: str, slot: str) -> Tuple[datetime, datetime]:
+    """
+    解析前端传递的时间槽参数。
+
+    Args:
+        date_str: 日期字符串 (YYYY-MM-DD)
+        slot: 时间段字符串 (HH:MM-HH:MM)
+
+    Returns:
+        Tuple[datetime, datetime]: 开始时间和结束时间 (UTC)
+    """
     if not date_str:
         raise AppError(ErrorCode.INVALID_REQUEST, "date 参数不能为空")
     if not slot or "-" not in slot:
@@ -39,6 +49,7 @@ def _parse_slot(date_str: str, slot: str) -> Tuple[datetime, datetime]:
     if start_time >= end_time:
         raise AppError(ErrorCode.INVALID_REQUEST, "slot 起止时间不合法")
 
+    # 处理时区：假设服务器本地时间，转换为 UTC
     local_tz = datetime.now().astimezone().tzinfo or timezone.utc
     start_dt = datetime.combine(day, start_time, tzinfo=local_tz).astimezone(timezone.utc)
     end_dt = datetime.combine(day, end_time, tzinfo=local_tz).astimezone(timezone.utc)
@@ -46,6 +57,10 @@ def _parse_slot(date_str: str, slot: str) -> Tuple[datetime, datetime]:
 
 
 def _derive_zone(device_no: str) -> str:
+    """
+    根据设备编号推断区域。
+    例如: A001 -> A区
+    """
     prefix = (device_no or "").strip()[:1].upper()
     if prefix in {"A", "B", "C"}:
         return f"{prefix}区"
@@ -55,11 +70,18 @@ def _derive_zone(device_no: str) -> str:
 def _resolve_availability_status(
     device: Device, occupied_device_ids: set[int]
 ) -> tuple[str, str]:
+    """
+    计算设备在特定时间段的显示状态。
+
+    Returns:
+        tuple[str, str]: (状态文本, 状态样式类)
+    """
     if device.status == DeviceStatus.MAINTENANCE:
         return "检修", "chip-alert"
     if device.status == DeviceStatus.SCRAPPED:
         return "停用", "chip-neutral"
     if device.status == DeviceStatus.IN_USE or device.id in occupied_device_ids:
+        # 设备本身状态为使用中，或者在查询时间段内有预约
         return "已占用", "chip-warn"
     return "可用", "chip-good"
 
@@ -74,9 +96,18 @@ def get_device_availability(
     zone: str | None = Query(None, description="按区域筛选（A区/B区/C区）"),
     db: Session = Depends(get_db),
 ) -> dict:
-    """获取指定日期/时段设备可用性列表"""
+    """
+    获取指定日期/时段的设备可用性看板列表。
+
+    该接口核心逻辑是：
+    1. 查询所有符合条件的设备。
+    2. 查询指定时间段内已被预约占用的设备 ID。
+    3. 合并状态，返回前端可直接渲染的数据。
+    """
+    # 解析查询时间段
     start_dt, end_dt = _parse_slot(date, slot)
 
+    # 构建设备查询语句
     stmt = select(Device)
     if keyword:
         stmt = stmt.where(
@@ -85,22 +116,27 @@ def get_device_availability(
             (Device.manufacturer.ilike(f"%{keyword}%"))
         )
 
+    # 区域筛选
     zone_prefix = None
     if zone:
         zone_prefix = zone.strip()[:1].upper()
         if zone_prefix:
             stmt = stmt.where(Device.device_no.ilike(f"{zone_prefix}%"))
 
+    # 计算总数
     count_stmt = select(func.count()).select_from(stmt.subquery())
     total = db.execute(count_stmt).scalar() or 0
 
+    # 分页查询设备
     devices = db.execute(
         stmt.order_by(Device.id.desc()).offset(skip).limit(limit)
     ).scalars().all()
 
+    # 查询占用情况：查找当前时间段内有有效预约的设备
     device_ids = [d.id for d in devices]
     occupied_device_ids: set[int] = set()
     if device_ids:
+        # 定义视为"占用"的预约状态
         active_statuses = [
             ReservationStatus.PENDING,
             ReservationStatus.ADVISOR_APPROVED,
@@ -110,15 +146,17 @@ def get_device_availability(
             ReservationStatus.EFFECTIVE,
             ReservationStatus.BORROWED,
         ]
+        # 查找时间段有交集的预约
         conflict_stmt = (
             select(Reservation.device_id)
             .where(Reservation.device_id.in_(device_ids))
             .where(Reservation.status.in_(active_statuses))
-            .where(Reservation.start_time < end_dt)
-            .where(Reservation.end_time > start_dt)
+            .where(Reservation.start_time < end_dt)  # 预约开始 < 查询结束
+            .where(Reservation.end_time > start_dt)  # 预约结束 > 查询开始
         )
         occupied_device_ids = set(db.execute(conflict_stmt).scalars().all())
 
+    # 组装返回数据
     items: list[DeviceAvailabilityItem] = []
     for device in devices:
         zone_value = _derive_zone(device.device_no)
@@ -150,11 +188,9 @@ def create_device(
     current_user: User = Depends(require_roles(UserRole.ADMIN, UserRole.HEAD)),
     db: Session = Depends(get_db),
 ) -> dict:
-    """创建设备（管理员/负责人）
-    
-    设备台账 CRUD - T09 (FR-4)
-    - deviceNo 唯一
-    - 型号、购入时间、厂商、用途、租用价格、状态
+    """
+    创建设备（台账录入）。
+    仅管理员和负责人可操作。
     """
     # 检查设备编号唯一性
     stmt = select(Device).where(Device.device_no == payload.device_no)
@@ -189,7 +225,10 @@ def list_devices(
     status: DeviceStatus | None = Query(None, description="按状态筛选"),
     db: Session = Depends(get_db),
 ) -> dict:
-    """获取设备列表（支持搜索和筛选）"""
+    """
+    获取设备列表（后台管理使用）。
+    支持关键词搜索和状态筛选。
+    """
     stmt = select(Device)
     
     if keyword:
@@ -224,7 +263,9 @@ def update_device(
     current_user: User = Depends(require_roles(UserRole.ADMIN, UserRole.HEAD)),
     db: Session = Depends(get_db),
 ) -> dict:
-    """更新设备（管理员/负责人）"""
+    """
+    更新设备信息（管理员/负责人）。
+    """
     device = db.get(Device, device_id)
     if not device:
         raise NotFoundError(f"设备不存在 (id={device_id})")
@@ -251,7 +292,9 @@ def delete_device(
     current_user: User = Depends(require_roles(UserRole.ADMIN, UserRole.HEAD)),
     db: Session = Depends(get_db),
 ) -> dict:
-    """删除设备（管理员/负责人）"""
+    """
+    删除设备（管理员/负责人）。
+    """
     device = db.get(Device, device_id)
     if not device:
         raise NotFoundError(f"设备不存在 (id={device_id})")
@@ -268,7 +311,14 @@ def get_device_ledger_stats(
     current_user: User = Depends(require_roles(UserRole.ADMIN, UserRole.HEAD)),
     db: Session = Depends(get_db),
 ) -> dict:
-    """获取设备台账统计（管理员/负责人）"""
+    """
+    获取设备台账统计信息（管理员/负责人）。
+
+    返回：
+    1. 设备总数
+    2. 按状态分类的设备数量
+    3. 设备总资产价值（租金单价累加，仅作示例，实际可能需按采购价）
+    """
     # 按状态统计
     status_counts = {}
     for status in DeviceStatus:
@@ -279,7 +329,7 @@ def get_device_ledger_stats(
     
     total = db.execute(select(func.count()).select_from(Device)).scalar() or 0
     
-    # 计算总租用价格
+    # 计算总租用价格 (示例统计指标)
     total_rental = db.execute(
         select(func.sum(Device.rental_price))
     ).scalar() or 0.0
