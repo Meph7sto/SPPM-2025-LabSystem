@@ -18,6 +18,12 @@ router = APIRouter(prefix="/auth")
 
 
 def build_account(payload: RegisterRequest) -> str:
+    """
+    根据角色类型生成账号标识。
+    - 教师：工号
+    - 学生：学号
+    - 校外人员：联系方式
+    """
     if payload.role == BorrowerType.TEACHER:
         return payload.teacher_no or ""
     if payload.role == BorrowerType.STUDENT:
@@ -31,12 +37,17 @@ def to_user_out(user: User) -> UserOut:
 
 @router.post("/register", response_model=dict)
 def register(payload: RegisterRequest, db: Session = Depends(get_db)) -> dict:
+    """
+    用户注册接口。
+    支持教师、学生、校外人员注册。
+    """
     account = build_account(payload)
     if not account:
         raise AppError(
             ErrorCode.BAD_REQUEST,
             "Account identifier is missing",
         )
+    # 检查账号是否存在
     existing = db.scalar(select(User).where(User.account == account))
     if existing:
         raise AppError(
@@ -74,6 +85,10 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)) -> dict:
 
 @router.post("/login", response_model=dict)
 def login(payload: LoginRequest, db: Session = Depends(get_db)) -> dict:
+    """
+    用户登录接口。
+    验证账号密码并返回 JWT token。
+    """
     user = db.scalar(select(User).where(User.account == payload.account))
     if not user or not verify_password(payload.password, user.password_hash):
         raise AppError(
@@ -87,6 +102,8 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)) -> dict:
             "Inactive account",
             status_code=401,
         )
+
+    # 验证角色匹配
     if payload.role in (LoginRole.ADMIN, LoginRole.HEAD):
         required_role = UserRole.ADMIN if payload.role == LoginRole.ADMIN else UserRole.HEAD
         if user.role != required_role:
@@ -103,6 +120,7 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)) -> dict:
                 "Role mismatch",
                 status_code=403,
             )
+
     token = create_access_token(
         subject=str(user.id),
         role=user.role.value,
@@ -119,4 +137,8 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)) -> dict:
 
 @router.get("/me", response_model=dict)
 def me(current_user: User = Depends(get_current_user)) -> dict:
+    """
+    获取当前用户信息接口。
+    需要有效的 JWT token。
+    """
     return ok(to_user_out(current_user).model_dump())
