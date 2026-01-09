@@ -40,11 +40,21 @@
         <form class="login-form" @submit.prevent="handleEnter">
           <div class="login-field">
             <label for="account">账号</label>
-            <input id="account" type="text" placeholder="工号 / 学号 / 手机号" />
+            <input
+              id="account"
+              v-model="account"
+              type="text"
+              placeholder="工号 / 学号 / 手机号"
+            />
           </div>
           <div class="login-field">
             <label for="password">密码</label>
-            <input id="password" type="password" placeholder="请输入密码" />
+            <input
+              id="password"
+              v-model="password"
+              type="password"
+              placeholder="请输入密码"
+            />
           </div>
           <div class="login-field">
             <label for="role">当前角色</label>
@@ -55,11 +65,16 @@
             </select>
           </div>
           <div class="login-actions">
-            <button type="submit" class="primary">进入系统</button>
+            <button type="submit" class="primary" :disabled="loading">
+              {{ loading ? "登录中..." : "进入系统" }}
+            </button>
             <button type="button" class="ghost">找回密码</button>
             <button type="button" class="ghost" @click="handleRegister">
               注册账号
             </button>
+          </div>
+          <div v-if="message" class="login-hint" :class="{ error: messageType === 'error' }">
+            {{ message }}
           </div>
           <div class="login-hint">
             提示：借用人员需提前 1-7 天预约，校外借用需缴费确认后生效。
@@ -72,6 +87,7 @@
 
 <script setup>
 import { ref, watch } from "vue";
+import { authAPI } from "../api.js";
 
 const props = defineProps({
   defaultRole: {
@@ -114,11 +130,40 @@ const roles = [
 ];
 
 const selectedRole = ref(props.defaultRole || roles[0].value);
+const account = ref("");
+const password = ref("");
+const loading = ref(false);
+const message = ref("");
+const messageType = ref("success");
 
 const emit = defineEmits(["enter", "register"]);
 
-const handleEnter = () => {
-  emit("enter", selectedRole.value);
+const showMessage = (text, type = "success") => {
+  message.value = text;
+  messageType.value = type;
+};
+
+const handleEnter = async () => {
+  message.value = "";
+  const trimmedAccount = account.value.trim();
+  if (!trimmedAccount || !password.value) {
+    showMessage("请输入账号和密码", "error");
+    return;
+  }
+
+  loading.value = true;
+  try {
+    const response = await authAPI.login(
+      trimmedAccount,
+      password.value,
+      selectedRole.value
+    );
+    emit("enter", { role: selectedRole.value, user: response.data?.user });
+  } catch (error) {
+    showMessage(error.message || "登录失败，请检查账号密码", "error");
+  } finally {
+    loading.value = false;
+  }
 };
 
 const handleRegister = () => {

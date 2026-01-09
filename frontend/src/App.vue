@@ -80,6 +80,7 @@
 
 <script setup>
 import { onMounted, ref } from "vue";
+import { authAPI } from "./api.js";
 import LoginView from "./components/LoginView.vue";
 import RegisterView from "./components/RegisterView.vue";
 import Sidebar from "./components/Sidebar.vue";
@@ -116,11 +117,22 @@ const roleMeta = {
   head: { label: "实验室负责人", type: "head" },
 };
 
-const enterDashboard = (role) => {
+const enterDashboard = (payload) => {
+  let role = typeof payload === "string" ? payload : payload?.role;
+  const user = typeof payload === "object" ? payload?.user : null;
+
+  if (user) {
+    if (user.role === "admin" || user.role === "head") {
+      role = user.role;
+    } else if (user.borrower_type) {
+      role = user.borrower_type;
+    }
+  }
+
   const meta = roleMeta[role] ?? roleMeta.student;
   mode.value = meta.type;
   roleLabel.value = meta.label;
-  borrowerRole.value = role;
+  borrowerRole.value = meta.type === "borrower" ? role : "";
   activePage.value = "dashboard";
   activeView.value = "dashboard";
 };
@@ -136,6 +148,7 @@ const completeRegister = (role) => {
 };
 
 const exitToLogin = () => {
+  authAPI.logout();
   activeView.value = "login";
   roleLabel.value = "";
 };

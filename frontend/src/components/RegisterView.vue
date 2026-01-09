@@ -114,10 +114,15 @@
             />
           </div>
           <div class="login-actions">
-            <button type="submit" class="primary">提交注册</button>
+            <button type="submit" class="primary" :disabled="loading">
+              {{ loading ? "提交中..." : "提交注册" }}
+            </button>
             <button type="button" class="ghost" @click="$emit('back')">
               取消
             </button>
+          </div>
+          <div v-if="message" class="login-hint" :class="{ error: messageType === 'error' }">
+            {{ message }}
           </div>
           <div class="login-hint">
             注册完成后需通过管理员核验身份信息，方可发起预约。
@@ -129,7 +134,8 @@
 </template>
 
 <script setup>
-import { reactive } from "vue";
+import { reactive, ref } from "vue";
+import { authAPI } from "../api.js";
 
 const props = defineProps({
   defaultRole: {
@@ -152,7 +158,72 @@ const form = reactive({
   password: "",
 });
 
-const handleRegister = () => {
-  emit("registered", form.role);
+const loading = ref(false);
+const message = ref("");
+const messageType = ref("success");
+
+const showMessage = (text, type = "success") => {
+  message.value = text;
+  messageType.value = type;
+};
+
+const handleRegister = async () => {
+  message.value = "";
+  const name = form.name.trim();
+  const contact = form.contact.trim();
+  const password = form.password;
+  const college = form.college.trim();
+  const teacherNo = form.teacherNo.trim();
+  const studentNo = form.studentNo.trim();
+  const advisorNo = form.advisorNo.trim();
+  const orgName = form.orgName.trim();
+
+  if (!name || !contact || !password) {
+    showMessage("请填写姓名、联系方式与密码", "error");
+    return;
+  }
+  if (password.length < 8) {
+    showMessage("密码至少 8 位", "error");
+    return;
+  }
+  if (form.role !== "external" && !college) {
+    showMessage("请填写学院/单位", "error");
+    return;
+  }
+  if (form.role === "teacher" && !teacherNo) {
+    showMessage("请填写教师编号", "error");
+    return;
+  }
+  if (form.role === "student" && (!studentNo || !advisorNo)) {
+    showMessage("请填写学生学号与导师工号", "error");
+    return;
+  }
+  if (form.role === "external" && !orgName) {
+    showMessage("请填写单位名称", "error");
+    return;
+  }
+
+  loading.value = true;
+  try {
+    await authAPI.register({
+      role: form.role,
+      name,
+      contact,
+      college: form.role === "external" ? null : college,
+      teacher_no: form.role === "teacher" ? teacherNo : null,
+      student_no: form.role === "student" ? studentNo : null,
+      advisor_no: form.role === "student" ? advisorNo : null,
+      org_name: form.role === "external" ? orgName : null,
+      password,
+    });
+    showMessage("注册成功，请返回登录", "success");
+    setTimeout(() => {
+      emit("registered", form.role);
+    }, 600);
+  } catch (error) {
+    showMessage(error.message || "注册失败，请稍后重试", "error");
+  } finally {
+    loading.value = false;
+  }
 };
 </script>

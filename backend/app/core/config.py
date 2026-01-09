@@ -16,6 +16,10 @@ class Settings(BaseSettings):
     cron_report_monthly: str = Field("0 0 1 * *", alias="CRON_REPORT_MONTHLY")
     cron_report_yearly: str = Field("0 0 1 1 *", alias="CRON_REPORT_YEARLY")
     allowed_admin_ips: str = Field("127.0.0.1/32", alias="ALLOWED_ADMIN_IPS")
+    cors_origins: str = Field(
+        "http://localhost:5173,http://127.0.0.1:5173",
+        alias="CORS_ORIGINS",
+    )
 
     model_config = SettingsConfigDict(
         env_file=".env",

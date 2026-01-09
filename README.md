@@ -230,12 +230,11 @@ conda init powershell
 
 **3. 端口被占用**
 ```powershell
-# 查看端口占用
-netstat -ano | findstr :11451
-netstat -ano | findstr :5173
+# 使用项目内置脚本清理占用端口
+.\kill-port.ps1
 
-# 杀死占用进程
-taskkill /PID <进程ID> /F
+# 如果需要强制终止：
+.\kill-port.ps1 -Force
 ```
 
 **4. 前端无法连接后端**

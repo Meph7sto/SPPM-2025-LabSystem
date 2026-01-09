@@ -1156,11 +1156,16 @@ select {
 }
 
 .login-hint {
-  font-size: 12px;
-  color: rgba(28, 40, 52, 0.6);
-  border-left: 2px solid rgba(196, 105, 47, 0.35);
-  padding-left: 12px;
-}
+    font-size: 12px;
+    color: rgba(28, 40, 52, 0.6);
+    border-left: 2px solid rgba(196, 105, 47, 0.35);
+    padding-left: 12px;
+  }
+
+  .login-hint.error {
+    color: rgba(185, 28, 28, 0.9);
+    border-left-color: rgba(185, 28, 28, 0.45);
+  }
 
 .app[data-mode="borrower"] .admin-only {
   display: none;
