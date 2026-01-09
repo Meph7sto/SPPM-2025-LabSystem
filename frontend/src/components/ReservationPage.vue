@@ -26,11 +26,10 @@
         <form class="form" @submit.prevent="handleSubmit">
           <label>
             设备选择
-            <select v-model="form.device">
-              <option>A-417 光谱仪</option>
-              <option>B-203 热分析平台</option>
-              <option>C-118 光学平台</option>
-              <option>A-512 显微成像系统</option>
+            <select v-model="form.deviceId">
+              <option v-for="d in devices" :key="d.id" :value="d.id">
+                {{ d.model }} ({{ d.device_no }})
+              </option>
             </select>
           </label>
           <label>
@@ -68,12 +67,14 @@
             <p class="card-kicker">摘要</p>
             <h2>预约预览</h2>
           </div>
-          <span class="chip chip-good">冲突检测</span>
+          <span class="chip" :class="isConflict ? 'chip-alert' : 'chip-good'">
+            {{ isConflict ? "存在冲突" : "无冲突" }}
+          </span>
         </div>
         <div class="summary-list">
           <div class="summary-row">
             <span>设备</span>
-            <strong>{{ form.device }}</strong>
+            <strong>{{ selectedDevice?.model || "待选择" }}</strong>
           </div>
           <div class="summary-row">
             <span>日期</span>
@@ -120,21 +121,25 @@
               <h3>提交申请</h3>
               <p>填写设备、时段与用途说明</p>
             </div>
-            <span class="chip chip-good">完成</span>
+            <span class="chip" :class="form.deviceId && form.date && form.purpose ? 'chip-good' : 'chip-neutral'">
+              {{ form.deviceId && form.date && form.purpose ? '已就绪' : '填写中' }}
+            </span>
           </div>
           <div class="timeline-item">
             <div>
               <h3>冲突校验</h3>
-              <p>同设备同时间段不可冲突</p>
+              <p>系统后台实时检测时段重合</p>
             </div>
-            <span class="chip chip-neutral">待处理</span>
+            <span class="chip" :class="isConflict ? 'chip-alert' : (isLoadingAvailability ? 'chip-neutral' : 'chip-good')">
+              {{ isConflict ? '有冲突' : (isLoadingAvailability ? '检测中' : '无冲突') }}
+            </span>
           </div>
           <div class="timeline-item">
             <div>
-              <h3>审批链</h3>
-              <p>导师 / 管理员 / 负责人按角色处理</p>
+              <h3>审批流匹配</h3>
+              <p>按角色自动进入对应流程</p>
             </div>
-            <span class="chip chip-neutral">待处理</span>
+            <span class="chip chip-neutral">待提交</span>
           </div>
         </div>
       </div>
@@ -143,22 +148,105 @@
 </template>
 
 <script setup>
-import { reactive, ref } from "vue";
+import { reactive, ref, onMounted, computed, watch } from "vue";
+import { deviceAPI, reservationAPI } from "../api";
+
+const devices = ref([]);
+const isConflict = ref(false);
+const isLoadingAvailability = ref(false);
 
 const form = reactive({
-  device: "A-417 光谱仪",
-  date: "",
+  deviceId: null,
+  date: new Date().toISOString().split("T")[0],
   slot: "08:00-10:00",
   purpose: "",
   contact: "",
 });
 
+const selectedDevice = computed(() => 
+  devices.value.find(d => d.id === form.deviceId)
+);
+
 const submitted = ref(false);
 
-const handleSubmit = () => {
-  submitted.value = true;
-  setTimeout(() => {
-    submitted.value = false;
-  }, 2000);
+const fetchDevices = async () => {
+  try {
+    const res = await deviceAPI.list();
+    if (res.data && res.data.items) {
+      devices.value = res.data.items;
+      if (devices.value.length > 0 && !form.deviceId) {
+        form.deviceId = devices.value[0].id;
+      }
+    }
+  } catch (error) {
+    console.error("Failed to fetch devices:", error);
+  }
+};
+
+const checkAvailability = async () => {
+  if (!form.deviceId || !form.date || !form.slot) return;
+  
+  isLoadingAvailability.value = true;
+  try {
+    const res = await deviceAPI.availability({
+      date: form.date,
+      slot: form.slot,
+      keyword: selectedDevice.value?.device_no
+    });
+    
+    if (res.data && res.data.items) {
+      const current = res.data.items.find(item => item.id === form.deviceId);
+      isConflict.value = current ? current.status === "已占用" : false;
+    }
+  } catch (error) {
+    console.error("Failed to check availability:", error);
+  } finally {
+    isLoadingAvailability.value = false;
+  }
+};
+
+watch([() => form.deviceId, () => form.date, () => form.slot], () => {
+  checkAvailability();
+});
+
+onMounted(() => {
+  fetchDevices();
+  checkAvailability();
+});
+
+const handleSubmit = async () => {
+  if (!form.deviceId || !form.date) {
+    alert("请选择设备并填写日期");
+    return;
+  }
+  
+  if (isConflict.value) {
+    alert("该时段设备已被占用，请修改预约方案");
+    return;
+  }
+
+  const [startHour, endHour] = form.slot.split("-").map(s => s.trim());
+  const startTime = new Date(`${form.date}T${startHour}:00`);
+  const endTime = new Date(`${form.date}T${endHour}:00`);
+
+  try {
+    await reservationAPI.create({
+      device_id: form.deviceId,
+      start_time: startTime.toISOString(),
+      end_time: endTime.toISOString(),
+      description: form.purpose,
+      contact: form.contact
+    });
+
+    submitted.value = true;
+    setTimeout(() => {
+      submitted.value = false;
+      // 重置表单或跳转
+      form.purpose = "";
+    }, 2000);
+  } catch (error) {
+    console.error("Failed to submit reservation:", error);
+    alert("提交失败: " + (error.response?.data?.message || error.message));
+  }
 };
 </script>

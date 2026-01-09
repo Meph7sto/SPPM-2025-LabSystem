@@ -122,6 +122,137 @@ export const userAPI = {
     },
 };
 
+// 设备相关 API
+export const deviceAPI = {
+    /**
+     * 获取设备列表
+     */
+    async list(params = {}) {
+        const query = new URLSearchParams(params).toString();
+        return await request(`/devices?${query}`);
+    },
+
+    /**
+     * 获取设备详情
+     */
+    async get(id) {
+        return await request(`/devices/${id}`);
+    },
+
+    /**
+     * 获取设备可用性
+     */
+    async availability(params = {}) {
+        const query = new URLSearchParams(params).toString();
+        return await request(`/devices/availability?${query}`);
+    },
+
+    /**
+     * 获取设备台账统计
+     */
+    async ledgerStats() {
+        return await request("/devices/ledger/stats");
+    },
+};
+
+// 预约相关 API
+export const reservationAPI = {
+    /**
+     * 获取预约列表
+     */
+    async list(status, skip = 0, limit = 100) {
+        let endpoint = `/reservations?skip=${skip}&limit=${limit}`;
+        if (status) {
+            endpoint += `&status=${status}`;
+        }
+        return await request(endpoint);
+    },
+
+    /**
+     * 获取预约详情
+     */
+    async get(id) {
+        return await request(`/reservations/${id}`);
+    },
+
+    /**
+     * 创建预约
+     */
+    async create(data) {
+        return await request("/reservations", {
+            method: "POST",
+            body: data,
+        });
+    },
+
+    /**
+     * 更新预约
+     */
+    async update(id, data) {
+        return await request(`/reservations/${id}`, {
+            method: "PUT",
+            body: data,
+        });
+    },
+
+    /**
+     * 删除预约
+     */
+    async delete(id) {
+        return await request(`/reservations/${id}`, {
+            method: "DELETE",
+        });
+    }
+};
+
+// 人员台账相关 API
+export const staffAPI = {
+    /**
+     * 获取人员台账统计
+     */
+    async stats() {
+        return await request("/staff/stats");
+    },
+
+    /**
+     * 获取学生台账列表
+     */
+    async listStudents(params = {}) {
+        const query = new URLSearchParams(params).toString();
+        const endpoint = query ? `/staff/students?${query}` : "/staff/students";
+        return await request(endpoint);
+    },
+
+    /**
+     * 创建学生台账
+     */
+    async createStudent(data) {
+        return await request("/staff/students", {
+            method: "POST",
+            body: data,
+        });
+    },
+
+    /**
+     * 更新学生台账
+     */
+    async updateStudent(id, data) {
+        return await request(`/staff/students/${id}`, {
+            method: "PUT",
+            body: data,
+        });
+    },
+
+    /**
+     * 删除学生台账
+     */
+    async deleteStudent(id) {
+        return await request(`/staff/students/${id}`, {
+            method: "DELETE",
+        });
+    },
+};
+
 /**
  * 从 localStorage 获取用户信息
  */

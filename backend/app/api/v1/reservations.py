@@ -4,7 +4,7 @@ from typing import List
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select, func
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from ...core.errors import AppError, ErrorCode, NotFoundError
 from ...core.response import ok
@@ -33,6 +33,52 @@ def determine_payment_status(borrower_type: BorrowerType | None) -> PaymentStatu
         return PaymentStatus.PENDING  # 校外人员需要支付
     else:
         return PaymentStatus.NOT_REQUIRED  # 校内人员无需支付
+
+
+def compute_next_action(reservation: Reservation) -> dict | None:
+    """根据当前审批步骤计算下一步动作（用于前端提交审批）"""
+    if reservation.status not in [
+        ReservationStatus.PENDING,
+        ReservationStatus.ADVISOR_APPROVED,
+        ReservationStatus.ADMIN_APPROVED,
+        ReservationStatus.HEAD_APPROVED,
+    ]:
+        return None
+
+    step = reservation.current_step
+    borrower_type = reservation.user.borrower_type if reservation.user else None
+
+    if step == ApprovalStep.ADVISOR:
+        return {
+            "status": ReservationStatus.ADVISOR_APPROVED.value,
+            "current_step": ApprovalStep.ADMIN.value,
+        }
+    if step == ApprovalStep.ADMIN:
+        if borrower_type == BorrowerType.EXTERNAL:
+            return {
+                "status": ReservationStatus.ADMIN_APPROVED.value,
+                "current_step": ApprovalStep.HEAD.value,
+            }
+        return {
+            "status": ReservationStatus.APPROVED.value,
+            "current_step": ApprovalStep.FINAL.value,
+        }
+    if step == ApprovalStep.HEAD:
+        return {
+            "status": ReservationStatus.HEAD_APPROVED.value,
+            "current_step": ApprovalStep.PAYMENT.value,
+        }
+    if step == ApprovalStep.PAYMENT:
+        return {
+            "status": ReservationStatus.APPROVED.value,
+            "current_step": ApprovalStep.FINAL.value,
+        }
+    if step == ApprovalStep.FINAL:
+        return {
+            "status": ReservationStatus.APPROVED.value,
+            "current_step": None,
+        }
+    return None
 
 
 @router.post("", response_model=dict)
@@ -82,7 +128,9 @@ def get_reservation(
         else:
             raise AppError(ErrorCode.PERMISSION_DENIED, "无权查看该预约")
 
-    return ok(ReservationDetail.model_validate(reservation).model_dump())
+    response = ReservationDetail.model_validate(reservation).model_dump()
+    response["next_action"] = compute_next_action(reservation)
+    return ok(response)
 
 
 @router.get("", response_model=dict)
@@ -95,7 +143,10 @@ def list_reservations(
     db: Session = Depends(get_db),
 ) -> dict:
     """获取预约列表"""
-    stmt = select(Reservation)
+    stmt = select(Reservation).options(
+        joinedload(Reservation.device),
+        joinedload(Reservation.user),
+    )
     
     # 权限过滤
     if current_user.role not in [UserRole.ADMIN, UserRole.HEAD]:
@@ -125,8 +176,14 @@ def list_reservations(
     stmt = stmt.order_by(Reservation.created_at.desc()).offset(skip).limit(limit)
     reservations = db.execute(stmt).scalars().all()
     
+    items = []
+    for reservation in reservations:
+        item = ReservationListItem.model_validate(reservation).model_dump()
+        item["next_action"] = compute_next_action(reservation)
+        items.append(item)
+
     return ok({
-        "items": [ReservationListItem.model_validate(r).model_dump() for r in reservations],
+        "items": items,
         "total": total,
         "skip": skip,
         "limit": limit,
@@ -160,7 +217,7 @@ def update_reservation(
             raise AppError(ErrorCode.INVALID_REQUEST, "当前状态不允许修改")
         
         # 申请人只能取消或修改描述/时间
-        allowed_fields = {"start_time", "end_time", "description", "status"}
+        allowed_fields = {"start_time", "end_time", "description", "status", "contact"}
         for key in list(update_data.keys()):
             if key not in allowed_fields:
                 del update_data[key]

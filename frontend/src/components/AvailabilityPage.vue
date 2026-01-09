@@ -23,7 +23,7 @@
           </div>
           <span class="chip chip-neutral">即时更新</span>
         </div>
-        <form class="form">
+        <form class="form" @submit.prevent="handleSearch">
           <label>
             查询日期
             <input type="date" v-model="filters.date" />
@@ -50,7 +50,10 @@
               <option value="C区">C 区</option>
             </select>
           </label>
-          <button type="button" class="primary">查询</button>
+          <button type="submit" class="primary" :disabled="loading">
+            {{ loading ? "查询中..." : "查询" }}
+          </button>
+          <p v-if="error" class="form-hint">{{ error }}</p>
         </form>
       </div>
 
@@ -107,60 +110,69 @@
 </template>
 
 <script setup>
-import { computed, reactive } from "vue";
+import { computed, reactive, ref, onMounted } from "vue";
 import AvailabilityMatrix from "./AvailabilityMatrix.vue";
+import { deviceAPI } from "../api";
+
+const getToday = () => {
+  const now = new Date();
+  const local = new Date(now.getTime() - now.getTimezoneOffset() * 60000);
+  return local.toISOString().slice(0, 10);
+};
 
 const filters = reactive({
-  date: "",
+  date: getToday(),
   slot: "08:00-10:00",
   keyword: "",
   zone: "A区",
 });
 
-const equipmentList = [
-  {
-    id: "A-417",
-    name: "A-417 光谱仪",
-    meta: "精密光学 | 设备编号 A-417",
-    status: "可用",
-    statusClass: "chip-good",
-    zone: "A区",
-  },
-  {
-    id: "B-203",
-    name: "B-203 热分析平台",
-    meta: "材料分析 | 设备编号 B-203",
-    status: "已占用",
-    statusClass: "chip-warn",
-    zone: "B区",
-  },
-  {
-    id: "C-118",
-    name: "C-118 光学平台",
-    meta: "精密光学 | 设备编号 C-118",
-    status: "检修",
-    statusClass: "chip-alert",
-    zone: "C区",
-  },
-  {
-    id: "A-512",
-    name: "A-512 显微成像系统",
-    meta: "生命科学 | 设备编号 A-512",
-    status: "可用",
-    statusClass: "chip-good",
-    zone: "A区",
-  },
-];
+const availabilityItems = ref([]);
+const loading = ref(false);
+const error = ref("");
 
 const filteredList = computed(() => {
-  const keyword = filters.keyword.trim().toLowerCase();
-  return equipmentList.filter((item) => {
-    const matchesKeyword =
-      !keyword ||
-      item.name.toLowerCase().includes(keyword) ||
-      item.meta.toLowerCase().includes(keyword);
-    const matchesZone = item.zone === filters.zone;
-    return matchesKeyword && matchesZone;
-  });
+  return availabilityItems.value;
+});
+
+const handleSearch = async () => {
+  if (!filters.date) {
+    error.value = "请选择查询日期";
+    return;
+  }
+
+  loading.value = true;
+  error.value = "";
+  try {
+    const params = {
+      date: filters.date,
+      slot: filters.slot,
+    };
+    if (filters.keyword.trim()) {
+      params.keyword = filters.keyword.trim();
+    }
+    if (filters.zone) {
+      params.zone = filters.zone;
+    }
+    const res = await deviceAPI.availability(params);
+    const items = res.data?.items || [];
+    availabilityItems.value = items.map((item) => ({
+      id: item.id,
+      name: item.name,
+      meta: item.meta,
+      status: item.status,
+      statusClass: item.status_class,
+      zone: item.zone,
+    }));
+  } catch (err) {
+    console.error("Failed to fetch availability:", err);
+    error.value = err.message || "查询失败，请稍后重试";
+  } finally {
+    loading.value = false;
+  }
+};
+
+onMounted(() => {
+  handleSearch();
 });
 </script>

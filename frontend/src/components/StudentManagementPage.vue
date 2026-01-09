@@ -5,7 +5,7 @@
         <p class="eyebrow">学生管理</p>
         <h1>指导名单维护</h1>
         <p class="lead">
-          维护指导学生列表，支持新增、删除与 Excel 批量导入，确保预约审批链可核验。
+          维护指导学生列表，支持新增、删除与 CSV 批量导入，确保预约审批链可核验。
         </p>
       </div>
       <div class="page-actions">
@@ -13,7 +13,7 @@
           下载导入模板
         </button>
         <button type="button" class="primary" @click="triggerFile">
-          导入 Excel
+          导入 CSV
         </button>
       </div>
     </section>
@@ -34,7 +34,7 @@
           <input
             v-model="keyword"
             type="text"
-            placeholder="搜索学号 / 姓名 / 专业"
+            placeholder="搜索学号 / 姓名 / 导师工号"
           />
           <select v-model="statusFilter">
             <option value="all">全部状态</option>
@@ -50,20 +50,23 @@
             <div>
               <h3>{{ student.name }}</h3>
               <p>
-                {{ student.studentNo }} · {{ student.major }} ·
-                {{ student.college }}
+                {{ student.studentNo }} ·
+                {{ student.advisorNo || "导师未绑定" }} ·
+                {{ student.college || "学院待补充" }}
               </p>
               <div class="chip-row">
-                <span class="chip chip-neutral">{{ student.grade }}</span>
+                <span class="chip chip-neutral">
+                  {{ student.advisorNo ? `导师 ${student.advisorNo}` : "导师未绑定" }}
+                </span>
                 <span class="chip" :class="student.active ? 'chip-good' : 'chip-warn'">
                   {{ student.active ? "在读" : "暂停" }}
                 </span>
               </div>
             </div>
             <div class="student-meta">
-              <p class="meta-title">最近更新</p>
-              <p class="meta-value">{{ student.updated }}</p>
-              <p class="meta-caption">来源：{{ student.source }}</p>
+              <p class="meta-title">创建时间</p>
+              <p class="meta-value">{{ formatDate(student.createdAt) }}</p>
+              <p class="meta-caption">联系方式：{{ student.contact || "未填写" }}</p>
             </div>
             <div class="student-actions">
               <button type="button" class="ghost" @click="selectStudent(student)">
@@ -75,7 +78,9 @@
             </div>
           </div>
         </div>
-        <p v-if="filteredStudents.length === 0" class="empty-state">
+        <p v-if="isLoading" class="form-hint">正在加载学生数据...</p>
+        <p v-else-if="loadError" class="form-hint">{{ loadError }}</p>
+        <p v-else-if="filteredStudents.length === 0" class="empty-state">
           没有匹配的学生记录，请调整筛选条件。
         </p>
         <div v-if="activeStudent" class="student-detail">
@@ -89,8 +94,16 @@
               <strong>{{ activeStudent.studentNo }}</strong>
             </div>
             <div class="summary-row">
-              <span>专业 / 学院</span>
-              <strong>{{ activeStudent.major }} · {{ activeStudent.college }}</strong>
+              <span>导师工号</span>
+              <strong>{{ activeStudent.advisorNo || "未绑定" }}</strong>
+            </div>
+            <div class="summary-row">
+              <span>学院</span>
+              <strong>{{ activeStudent.college || "未填写" }}</strong>
+            </div>
+            <div class="summary-row">
+              <span>联系方式</span>
+              <strong>{{ activeStudent.contact || "未填写" }}</strong>
             </div>
             <div class="summary-row">
               <span>审核状态</span>
@@ -123,14 +136,19 @@
             <input v-model="form.studentNo" type="text" />
           </label>
           <label>
-            专业
-            <input v-model="form.major" type="text" />
+            导师工号
+            <input v-model="form.advisorNo" type="text" />
+          </label>
+          <label>
+            联系方式
+            <input v-model="form.contact" type="text" />
           </label>
           <label>
             学院
             <input v-model="form.college" type="text" />
           </label>
           <button type="submit" class="primary">添加到名单</button>
+          <p v-if="formError" class="form-hint">{{ formError }}</p>
           <p v-if="saved" class="form-hint">学生已添加到指导名单。</p>
         </form>
       </div>
@@ -138,7 +156,7 @@
       <div class="card">
         <div class="card-header">
           <div>
-            <p class="card-kicker">Excel 导入</p>
+            <p class="card-kicker">CSV 导入</p>
             <h2>批量更新名单</h2>
           </div>
           <span class="chip chip-neutral">模板校验</span>
@@ -148,11 +166,11 @@
             <input
               ref="fileInput"
               type="file"
-              accept=".xlsx,.xls,.csv"
+              accept=".csv"
               @change="handleFile"
             />
-            <span class="upload-title">拖拽 Excel 文件或点击上传</span>
-            <span class="upload-meta">支持 .xlsx / .xls / .csv</span>
+            <span class="upload-title">拖拽 CSV 文件或点击上传</span>
+            <span class="upload-meta">支持 .csv</span>
           </label>
           <div class="summary-list">
             <div class="summary-row">
@@ -161,7 +179,7 @@
             </div>
             <div class="summary-row">
               <span>导入策略</span>
-              <strong>新增 / 覆盖同学号</strong>
+              <strong>仅新增（学号重复跳过）</strong>
             </div>
             <div class="summary-row">
               <span>格式检查</span>
@@ -184,56 +202,28 @@
 </template>
 
 <script setup>
-import { computed, reactive, ref } from "vue";
+import { computed, reactive, ref, onMounted } from "vue";
+import { staffAPI } from "../api";
 
 const keyword = ref("");
 const statusFilter = ref("all");
 const saved = ref(false);
+const formError = ref("");
 const importMessage = ref("");
 const fileName = ref("");
+const selectedFile = ref(null);
+const isLoading = ref(false);
+const loadError = ref("");
 const activeStudent = ref(null);
 const fileInput = ref(null);
 
-const students = ref([
-  {
-    id: "S-1021",
-    name: "张欣怡",
-    studentNo: "20241234",
-    major: "材料科学与工程",
-    college: "材料学院",
-    grade: "2022 级",
-    active: true,
-    updated: "2 天前",
-    source: "手动新增",
-  },
-  {
-    id: "S-1034",
-    name: "李文博",
-    studentNo: "20240156",
-    major: "化学工程",
-    college: "化工学院",
-    grade: "2021 级",
-    active: true,
-    updated: "4 小时前",
-    source: "Excel 导入",
-  },
-  {
-    id: "S-1088",
-    name: "周语晴",
-    studentNo: "20231287",
-    major: "生物工程",
-    college: "生物学院",
-    grade: "2020 级",
-    active: false,
-    updated: "1 周前",
-    source: "暂停借用",
-  },
-]);
+const students = ref([]);
 
 const form = reactive({
   name: "",
   studentNo: "",
-  major: "",
+  advisorNo: "",
+  contact: "",
   college: "",
 });
 
@@ -243,8 +233,10 @@ const filteredStudents = computed(() => {
     const matchesKeyword =
       !keywordValue ||
       student.name.toLowerCase().includes(keywordValue) ||
-      student.studentNo.includes(keywordValue) ||
-      student.major.toLowerCase().includes(keywordValue);
+      student.studentNo.toLowerCase().includes(keywordValue) ||
+      (student.advisorNo || "").toLowerCase().includes(keywordValue) ||
+      (student.college || "").toLowerCase().includes(keywordValue) ||
+      (student.contact || "").toLowerCase().includes(keywordValue);
     const matchesStatus =
       statusFilter.value === "all" ||
       (statusFilter.value === "active" && student.active) ||
@@ -258,33 +250,99 @@ const resetFilters = () => {
   statusFilter.value = "all";
 };
 
-const addStudent = () => {
-  if (!form.name || !form.studentNo) return;
-  students.value.unshift({
-    id: `S-${Math.floor(Math.random() * 9000 + 1000)}`,
-    name: form.name,
-    studentNo: form.studentNo,
-    major: form.major || "待补充",
-    college: form.college || "待补充",
-    grade: "待确认",
-    active: true,
-    updated: "刚刚",
-    source: "手动新增",
-  });
-  form.name = "";
-  form.studentNo = "";
-  form.major = "";
-  form.college = "";
-  saved.value = true;
-  setTimeout(() => {
-    saved.value = false;
-  }, 2000);
+const formatDate = (value) => {
+  if (!value) return "未知";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleDateString("zh-CN");
 };
 
-const removeStudent = (id) => {
-  students.value = students.value.filter((student) => student.id !== id);
-  if (activeStudent.value?.id === id) {
-    activeStudent.value = null;
+const mapStudent = (item) => ({
+  id: item.id,
+  name: item.name,
+  studentNo: item.student_no || "",
+  advisorNo: item.advisor_no || "",
+  contact: item.contact || "",
+  college: item.college || "",
+  active: item.is_active ?? true,
+  createdAt: item.created_at,
+});
+
+const fetchStudents = async () => {
+  isLoading.value = true;
+  loadError.value = "";
+  try {
+    const res = await staffAPI.listStudents({ skip: 0, limit: 100 });
+    const items = res.data?.items || [];
+    const mapped = items.map(mapStudent);
+    students.value = mapped;
+    if (activeStudent.value) {
+      activeStudent.value =
+        mapped.find((student) => student.id === activeStudent.value.id) || null;
+    }
+  } catch (error) {
+    console.error("Failed to fetch students:", error);
+    loadError.value = "加载失败，请稍后重试。";
+  } finally {
+    isLoading.value = false;
+  }
+};
+
+onMounted(() => {
+  fetchStudents();
+});
+
+const addStudent = async () => {
+  formError.value = "";
+  const payload = {
+    name: form.name.trim(),
+    student_no: form.studentNo.trim(),
+    advisor_no: form.advisorNo.trim(),
+    contact: form.contact.trim(),
+    college: form.college.trim(),
+  };
+
+  if (
+    !payload.name ||
+    !payload.student_no ||
+    !payload.advisor_no ||
+    !payload.contact ||
+    !payload.college
+  ) {
+    formError.value = "请填写学生姓名、学号、导师工号、联系方式和学院。";
+    return;
+  }
+
+  try {
+    const res = await staffAPI.createStudent(payload);
+    if (res.data) {
+      students.value.unshift(mapStudent(res.data));
+    }
+    form.name = "";
+    form.studentNo = "";
+    form.advisorNo = "";
+    form.contact = "";
+    form.college = "";
+    saved.value = true;
+    setTimeout(() => {
+      saved.value = false;
+    }, 2000);
+  } catch (error) {
+    console.error("Failed to add student:", error);
+    formError.value = error.message || "新增失败，请稍后重试。";
+  }
+};
+
+const removeStudent = async (id) => {
+  try {
+    await staffAPI.deleteStudent(id);
+    students.value = students.value.filter((student) => student.id !== id);
+    if (activeStudent.value?.id === id) {
+      activeStudent.value = null;
+    }
+  } catch (error) {
+    console.error("Failed to remove student:", error);
+    alert("删除失败，请稍后重试。");
   }
 };
 
@@ -294,7 +352,7 @@ const selectStudent = (student) => {
 
 const downloadTemplate = () => {
   const content =
-    "studentNo,name,major,college,grade\n20241234,张欣怡,材料科学与工程,材料学院,2022\n";
+    "studentNo,name,advisorNo,contact,college\n20241234,张欣怡,T2023001,18800001111,材料学院\n";
   const blob = new Blob([content], { type: "text/csv;charset=utf-8" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
@@ -310,38 +368,91 @@ const triggerFile = () => {
 
 const handleFile = (event) => {
   const file = event.target.files?.[0];
+  selectedFile.value = file || null;
   fileName.value = file ? file.name : "";
+  importMessage.value = "";
 };
 
-const importStudents = () => {
-  if (!fileName.value) return;
-  students.value.unshift(
-    {
-      id: "S-2012",
-      name: "宋嘉昊",
-      studentNo: "20251221",
-      major: "机械工程",
-      college: "机电学院",
-      grade: "2023 级",
-      active: true,
-      updated: "刚刚",
-      source: "Excel 导入",
-    },
-    {
-      id: "S-2013",
-      name: "韩子衿",
-      studentNo: "20251008",
-      major: "计算机科学",
-      college: "信息学院",
-      grade: "2023 级",
-      active: true,
-      updated: "刚刚",
-      source: "Excel 导入",
+const parseCsvRows = (text) => {
+  const lines = text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  if (lines.length < 2) return [];
+  const headers = lines[0].split(",").map((header) => header.trim());
+  return lines.slice(1).map((line) => {
+    const values = line.split(",").map((value) => value.trim());
+    const row = {};
+    headers.forEach((header, index) => {
+      row[header] = values[index] ?? "";
+    });
+    return row;
+  });
+};
+
+const importStudents = async () => {
+  if (!selectedFile.value) return;
+  importMessage.value = "正在导入...";
+  try {
+    const text = await selectedFile.value.text();
+    const rows = parseCsvRows(text);
+    if (!rows.length) {
+      importMessage.value = "未读取到有效数据，请检查模板。";
+      return;
     }
-  );
-  importMessage.value = "导入完成：新增 2 条，覆盖 0 条。";
-  setTimeout(() => {
-    importMessage.value = "";
-  }, 2400);
+
+    let success = 0;
+    let failed = 0;
+    const created = [];
+
+    for (const row of rows) {
+      const payload = {
+        name: (row.name || "").trim(),
+        student_no: (row.studentNo || "").trim(),
+        advisor_no: (row.advisorNo || "").trim(),
+        contact: (row.contact || "").trim(),
+        college: (row.college || "").trim(),
+      };
+
+      if (
+        !payload.name ||
+        !payload.student_no ||
+        !payload.advisor_no ||
+        !payload.contact ||
+        !payload.college
+      ) {
+        failed += 1;
+        continue;
+      }
+
+      try {
+        const res = await staffAPI.createStudent(payload);
+        if (res.data) {
+          created.push(mapStudent(res.data));
+        }
+        success += 1;
+      } catch (error) {
+        failed += 1;
+      }
+    }
+
+    if (created.length) {
+      students.value = [...created, ...students.value];
+    }
+
+    importMessage.value = `导入完成：新增 ${success} 条，失败 ${failed} 条。`;
+  } catch (error) {
+    console.error("Failed to import students:", error);
+    importMessage.value = "导入失败，请检查文件格式。";
+  } finally {
+    setTimeout(() => {
+      importMessage.value = "";
+    }, 2400);
+    selectedFile.value = null;
+    fileName.value = "";
+    if (fileInput.value) {
+      fileInput.value.value = "";
+    }
+  }
 };
 </script>

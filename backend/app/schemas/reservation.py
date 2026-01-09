@@ -14,6 +14,8 @@ class ReservationBase(BaseModel):
     start_time: datetime
     end_time: datetime
     description: str | None = Field(None, max_length=255)
+    contact: str | None = Field(None, max_length=100)
+
 
 
 class ReservationCreate(ReservationBase):
@@ -26,6 +28,7 @@ class ReservationUpdate(BaseModel):
     start_time: datetime | None = None
     end_time: datetime | None = None
     description: str | None = None
+    contact: str | None = None
     status: ReservationStatus | None = None
     current_step: ApprovalStep | None = None
     payment_status: PaymentStatus | None = None
@@ -40,6 +43,12 @@ class ApprovalAction(BaseModel):
     comment: str | None = Field(None, max_length=500, description="审批意见")
 
 
+class NextAction(BaseModel):
+    """后端计算的下一步审批动作"""
+    status: ReservationStatus
+    current_step: ApprovalStep | None
+
+
 class ReservationOut(BaseModel):
     """预约输出"""
     model_config = ConfigDict(from_attributes=True)
@@ -50,6 +59,7 @@ class ReservationOut(BaseModel):
     start_time: datetime
     end_time: datetime
     description: str | None
+    contact: str | None
     
     # 状态
     status: ReservationStatus
@@ -105,4 +115,12 @@ class ReservationListItem(BaseModel):
     end_time: datetime
     status: ReservationStatus
     payment_status: PaymentStatus
+    current_step: ApprovalStep | None
+    description: str | None
+    contact: str | None
     created_at: datetime
+    
+    # 关联信息
+    device: DeviceOut
+    user: UserOut
+    next_action: NextAction | None = None

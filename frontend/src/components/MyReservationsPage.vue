@@ -220,7 +220,8 @@
 </template>
 
 <script setup>
-import { computed, reactive, ref, watch } from "vue";
+import { computed, reactive, ref, onMounted, watch } from "vue";
+import { reservationAPI, getCachedUserInfo } from "../api";
 
 const props = defineProps({
   borrowerRole: {
@@ -245,94 +246,75 @@ const editSaved = ref(false);
 
 const isExternal = computed(() => props.borrowerRole === "external");
 
-const seedReservations = (role) => {
-  if (role === "external") {
-    return [
-      {
-        id: "R-2041",
-        device: "C-118 光学平台",
-        slot: "4 月 18 日 14:00 - 16:00",
-        location: "C 区",
-        status: "待缴费",
-        purpose: "产业合作测试",
-        orderId: "F-3210",
-      },
-      {
-        id: "R-2044",
-        device: "A-417 光谱仪",
-        slot: "4 月 21 日 08:00 - 10:00",
-        location: "A 区",
-        status: "待确认",
-        purpose: "企业材料分析",
-        orderId: "F-3212",
-      },
-      {
-        id: "R-2048",
-        device: "B-203 热分析平台",
-        slot: "4 月 24 日 10:00 - 12:00",
-        location: "B 区",
-        status: "退回补充材料",
-        purpose: "外部委托",
-      },
-    ];
+const fetchReservations = async () => {
+  try {
+    const res = await reservationAPI.list();
+    if (res.data && res.data.items) {
+      reservations.value = res.data.items.map(item => ({
+        id: `R-${item.id}`,
+        dbId: item.id,
+        device: item.device?.model || "未知设备",
+        slot: `${formatDate(item.start_time)} - ${formatTime(item.end_time)}`,
+        location: "主实验室", // 默认位置
+        status: mapStatus(item),
+        purpose: item.description || "无",
+        paymentStatus: item.payment_status,
+        amount: item.payment_amount,
+        orderId: item.payment_order_no || (item.payment_status !== 'not_required' ? `F-${item.id}` : null)
+      }));
+
+      // 提取支付订单（仅限校外人员或需要支付的）
+      if (isExternal.value) {
+        paymentOrders.value = res.data.items
+          .filter(item => item.payment_status !== 'not_required')
+          .map(item => ({
+            id: item.payment_order_no || `F-${item.id}`,
+            reservationId: `R-${item.id}`,
+            detail: `校外 · ${item.description || "设备借用"} · ${item.device?.model}`,
+            amount: item.payment_amount,
+            status: mapPaymentStatus(item.payment_status),
+            account: "江南大学财务处 · 6222 **** 8890",
+            deadline: formatDate(item.start_time), // 借用开始前
+            dbId: item.id
+          }));
+      }
+    }
+  } catch (error) {
+    console.error("Failed to fetch reservations:", error);
   }
-  return [
-    {
-      id: "R-1491",
-      device: "A-417 光谱仪",
-      slot: "4 月 12 日 08:00 - 10:00",
-      location: "A 区",
-      status: "已批准",
-      purpose: "项目 A-12",
-    },
-    {
-      id: "R-1493",
-      device: "B-203 热分析平台",
-      slot: "4 月 13 日 10:00 - 12:00",
-      location: "B 区",
-      status: "退回补充材料",
-      purpose: "材料测试",
-    },
-    {
-      id: "R-1498",
-      device: "C-118 光学平台",
-      slot: "4 月 15 日 14:00 - 16:00",
-      location: "C 区",
-      status: "待审批",
-      purpose: "实验验证",
-    },
-  ];
 };
 
-const seedPayments = (role) => {
-  if (role !== "external") return [];
-  return [
-    {
-      id: "F-3210",
-      reservationId: "R-2041",
-      detail: "校外 · 产业合作 · C-118 光学平台",
-      amount: 5400,
-      status: "待支付",
-      account: "江南大学财务处 · 6222 **** 8890",
-      deadline: "4 月 16 日 18:00",
-    },
-    {
-      id: "F-3212",
-      reservationId: "R-2044",
-      detail: "校外 · 企业项目 · A-417 光谱仪",
-      amount: 3200,
-      status: "待确认",
-      account: "江南大学财务处 · 6222 **** 8890",
-      deadline: "4 月 19 日 18:00",
-    },
-  ];
+const formatDate = (dateStr) => {
+  const d = new Date(dateStr);
+  return `${d.getMonth() + 1} 月 ${d.getDate()} 日 ${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
+};
+
+const formatTime = (dateStr) => {
+  const d = new Date(dateStr);
+  return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
+};
+
+const mapStatus = (item) => {
+  const s = item.status;
+  if (s === 'cancelled') return "已撤销";
+  if (s === 'returned') return "退回补充材料";
+  if (s === 'approved' || s === 'effective' || s === 'borrowed' || s === 'completed') return "已批准";
+  if (item.payment_status === 'pending') return "待缴费";
+  if (item.payment_status === 'paid' && item.current_step === 'final') return "待确认";
+  return "待审批";
+};
+
+const mapPaymentStatus = (status) => {
+  if (status === 'pending') return "待支付";
+  if (status === 'paid') return "待确认";
+  if (status === 'refunded') return "已退款";
+  return "已支付";
 };
 
 watch(
   () => props.borrowerRole,
-  (role) => {
-    reservations.value = seedReservations(role);
-    paymentOrders.value = seedPayments(role);
+  () => {
+    fetchReservations();
     selectedOrderId.value = "";
     paymentNotice.value = "";
     editing.value = null;
@@ -340,6 +322,10 @@ watch(
   },
   { immediate: true }
 );
+
+onMounted(() => {
+  fetchReservations();
+});
 
 const activeOrder = computed(
   () => paymentOrders.value.find((order) => order.id === selectedOrderId.value) || null
@@ -378,36 +364,44 @@ const paymentActionLabel = (status) =>
 const startEdit = (item) => {
   if (!canEdit(item.status)) return;
   editing.value = item.id;
-  editForm.id = item.id;
+  editForm.id = item.dbId; // 使用数据库 ID
   editForm.device = item.device;
   editForm.slot = item.slot;
   editForm.purpose = item.purpose;
 };
 
-const saveEdit = () => {
-  const index = reservations.value.findIndex((item) => item.id === editForm.id);
-  if (index === -1) return;
-  reservations.value[index] = {
-    ...reservations.value[index],
-    device: editForm.device,
-    slot: editForm.slot,
-    purpose: editForm.purpose,
-    status: "待审批",
-  };
-  editSaved.value = true;
-  setTimeout(() => {
-    editSaved.value = false;
-  }, 2000);
+const saveEdit = async () => {
+  try {
+    await reservationAPI.update(editForm.id, {
+      description: editForm.purpose
+      // 注意：时间更新需要解析 slot 字符串，这里简化处理，只更新用途
+      // 实际应用中应提供时间选择器
+    });
+    
+    editSaved.value = true;
+    fetchReservations(); // 刷新数据
+    setTimeout(() => {
+      editSaved.value = false;
+      editing.value = null;
+    }, 2000);
+  } catch (error) {
+    console.error("Failed to save edit:", error);
+    alert("保存失败: " + error.message);
+  }
 };
 
-const cancelReservation = (id) => {
-  const index = reservations.value.findIndex((item) => item.id === id);
-  if (index === -1) return;
-  reservations.value[index].status = "已撤销";
-  const orderId = reservations.value[index].orderId;
-  if (orderId) {
-    const order = paymentOrders.value.find((item) => item.id === orderId);
-    if (order) order.status = "已取消";
+const cancelReservation = async (id) => {
+  const item = reservations.value.find(prev => prev.id === id);
+  if (!item) return;
+  
+  try {
+    await reservationAPI.update(item.dbId, {
+      status: "cancelled"
+    });
+    fetchReservations(); // 刷新数据
+  } catch (error) {
+    console.error("Failed to cancel reservation:", error);
+    alert("撤销失败: " + error.message);
   }
 };
 
@@ -415,20 +409,25 @@ const selectOrder = (orderId) => {
   selectedOrderId.value = orderId;
 };
 
-const payOrder = (orderId) => {
+const payOrder = async (orderId) => {
   const order = paymentOrders.value.find((item) => item.id === orderId);
   if (!order) return;
-  selectedOrderId.value = orderId;
-  if (order.status === "待支付") {
-    order.status = "待确认";
-    const reservation = reservations.value.find(
-      (item) => item.orderId === orderId
-    );
-    if (reservation) reservation.status = "待确认";
+  
+  try {
+    // 模拟支付 API 调用，后端应提供支付确认接口
+    // 这里我们直接更新预约的支付状态
+    await reservationAPI.update(order.dbId, {
+      payment_status: "paid"
+    });
+    
     paymentNotice.value = "支付已提交，等待财务回传确认。";
+    fetchReservations();
     setTimeout(() => {
       paymentNotice.value = "";
     }, 2400);
+  } catch (error) {
+    console.error("Payment failed:", error);
+    alert("支付提交失败");
   }
 };
 

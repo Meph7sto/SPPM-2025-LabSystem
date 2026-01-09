@@ -63,6 +63,9 @@ class Reservation(Base):
     # 用途说明
     description: Mapped[str | None] = mapped_column(String(255), nullable=True)
     
+    # 联系方式
+    contact: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    
     # 状态信息
     status: Mapped[ReservationStatus] = mapped_column(
         Enum(ReservationStatus, name="reservation_status", native_enum=False),
