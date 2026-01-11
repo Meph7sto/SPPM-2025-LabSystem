@@ -209,4 +209,3 @@ Write-Host "按 Ctrl+C 停止服务器" -ForegroundColor Yellow
 Write-Host ""
 
 uvicorn backend.app.main:app --reload --host 0.0.0.0 --port 11451
-
