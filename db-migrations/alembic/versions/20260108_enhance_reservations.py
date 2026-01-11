@@ -40,21 +40,21 @@ def upgrade() -> None:
     op.add_column('reservations', sa.Column('payment_time', sa.DateTime(timezone=True), nullable=True))
     op.add_column('reservations', sa.Column('refund_amount', sa.Float(), nullable=True))
     op.add_column('reservations', sa.Column('refund_time', sa.DateTime(timezone=True), nullable=True))
-    
+
     # 借出/归还信息
     op.add_column('reservations', sa.Column('borrow_time', sa.DateTime(timezone=True), nullable=True))
     op.add_column('reservations', sa.Column('return_time', sa.DateTime(timezone=True), nullable=True))
     op.add_column('reservations', sa.Column('handover_note', sa.Text(), nullable=True))
     op.add_column('reservations', sa.Column('return_note', sa.Text(), nullable=True))
-    
+
     # 时间戳
     op.add_column('reservations', sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False))
     op.add_column('reservations', sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False))
-    
+
     # 添加外键约束
     op.create_foreign_key('fk_reservations_advisor_id', 'reservations', 'users', ['advisor_id'], ['id'])
     op.create_foreign_key('fk_reservations_head_id', 'reservations', 'users', ['head_id'], ['id'])
-    
+
     # 更新payment_status的默认值（从PENDING改为NOT_REQUIRED）
     # 因为校内人员不需要支付
     # 这里我们只是添加说明，实际修改enum需要更复杂的操作
@@ -64,7 +64,7 @@ def downgrade() -> None:
     # 删除外键约束
     op.drop_constraint('fk_reservations_head_id', 'reservations', type_='foreignkey')
     op.drop_constraint('fk_reservations_advisor_id', 'reservations', type_='foreignkey')
-    
+
     # 删除新增字段
     op.drop_column('reservations', 'updated_at')
     op.drop_column('reservations', 'created_at')
