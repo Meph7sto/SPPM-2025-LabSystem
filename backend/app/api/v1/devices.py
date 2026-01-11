@@ -15,6 +15,7 @@ from ...models.reservation import Reservation, ReservationStatus
 from ...models.user import User, UserRole
 from ...schemas import DeviceAvailabilityItem,DeviceCreate, DeviceOut, DeviceUpdate
 from ..deps import get_current_user, require_roles
+
 router = APIRouter(prefix="/devices")
 
 
