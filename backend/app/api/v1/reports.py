@@ -6,10 +6,11 @@ from app.db.session import get_db
 from io import BytesIO
 from fastapi.responses import StreamingResponse
 from openpyxl import Workbook
-from datetime import date, timedelta
+from datetime import date, timedelta, datetime
 from ...models.device import Device
 from ...models.reservation import Reservation, ReservationStatus
 from urllib.parse import quote
+import pandas as pd
 
 router = APIRouter(prefix="/reports", tags=["reports"])
 
@@ -162,6 +163,131 @@ def export_weekly_report_excel(db: Session = Depends(get_db)):
             f"attachment; filename={filename}; "
             f"filename*=UTF-8''{quote(filename_cn)}"
         )
+    }
+
+    return StreamingResponse(
+        output,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers=headers
+    )
+
+@router.get("/yearly/excel", summary="导出年报 Excel")
+def export_yearly_report_excel(db: Session = Depends(get_db)):
+    # 1. 计算本年时间范围
+    today = date.today()
+    start_date = today.replace(month=1, day=1)
+    end_date = today.replace(month=12, day=31)
+
+    # 2. 查询预约数据
+    reservations = (
+        db.query(Reservation)
+        .filter(Reservation.created_at >= start_date)
+        .filter(Reservation.created_at <= end_date)
+        .all()
+    )
+
+    # 3. 创建 Excel
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "年报"
+
+    # 表头
+    ws.append([
+        "预约ID",
+        "设备ID",
+        "用户ID",
+        "开始时间",
+        "结束时间",
+        "状态",
+        "支付状态",
+        "金额"
+    ])
+
+    # 数据行
+    for r in reservations:
+        ws.append([
+            r.id,
+            r.device_id,
+            r.user_id,
+            r.start_time,
+            r.end_time,
+            r.status,
+            r.payment_status,
+            r.payment_amount,
+        ])
+
+    # 4. 输出
+    output = BytesIO()
+    wb.save(output)
+    output.seek(0)
+
+    filename_cn = f"实验设备年报_{today}.xlsx"
+    headers = {
+        "Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename_cn)}"
+    }
+
+    return StreamingResponse(
+        output,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers=headers
+    )
+@router.get("/monthly/excel", summary="导出月报 Excel")
+def export_monthly_report_excel(db: Session = Depends(get_db)):
+    # 1. 计算本月时间范围
+    today = date.today()
+    start_date = today.replace(day=1)
+    # 月末
+    if today.month == 12:
+        end_date = today.replace(year=today.year + 1, month=1, day=1) - timedelta(days=1)
+    else:
+        end_date = today.replace(month=today.month + 1, day=1) - timedelta(days=1)
+
+    # 2. 查询预约数据
+    reservations = (
+        db.query(Reservation)
+        .filter(Reservation.created_at >= start_date)
+        .filter(Reservation.created_at <= end_date)
+        .all()
+    )
+
+    # 3. 创建 Excel
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "月报"
+
+    # 表头
+    ws.append([
+        "预约ID",
+        "设备ID",
+        "用户ID",
+        "开始时间",
+        "结束时间",
+        "状态",
+        "支付状态",
+        "金额"
+    ])
+
+    # 数据行
+    for r in reservations:
+        ws.append([
+            r.id,
+            r.device_id,
+            r.user_id,
+            r.start_time,
+            r.end_time,
+            r.status,
+            r.payment_status,
+            r.payment_amount,
+        ])
+
+    # 4. 输出
+    output = BytesIO()
+    wb.save(output)
+    output.seek(0)
+
+    filename_cn = f"实验设备月报_{today}.xlsx"
+    headers = {
+        "Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename_cn)}"
     }
 
     return StreamingResponse(
