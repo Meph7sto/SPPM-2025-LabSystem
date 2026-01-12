@@ -15,4 +15,5 @@ class Base(DeclarativeBase):
 # 导入所有模型以确保它们在 Base.metadata 中注册
 # 这一步对于 Alembic 自动生成迁移脚本至关重要，
 # 如果不导入，Alembic 无法检测到模型定义。
-from ..models import user, device, reservation  # noqa: E402,F401
+from ..models import user, device, reservation, finance  # noqa: E402,F401
+
