@@ -160,12 +160,16 @@ export const reservationAPI = {
     /**
      * 获取预约列表
      */
-    async list(status, skip = 0, limit = 100) {
-        let endpoint = `/reservations?skip=${skip}&limit=${limit}`;
+    async list(status, skip = 0, limit = 100, extraParams = {}) {
+        const params = new URLSearchParams({ skip: String(skip), limit: String(limit) });
         if (status) {
-            endpoint += `&status=${status}`;
+            params.set("status", status);
         }
-        return await request(endpoint);
+        Object.entries(extraParams || {}).forEach(([key, value]) => {
+            if (value === undefined || value === null || value === "") return;
+            params.set(key, String(value));
+        });
+        return await request(`/reservations?${params.toString()}`);
     },
 
     /**
@@ -196,6 +200,33 @@ export const reservationAPI = {
     },
 
     /**
+     * 同步财务缴费结果
+     */
+    async syncPayment(id) {
+        return await request(`/reservations/${id}/payment/sync`, {
+            method: "POST",
+        });
+    },
+
+    /**
+     * 管理员最终确认
+     */
+    async finalize(id) {
+        return await request(`/reservations/${id}/finalize`, {
+            method: "POST",
+        });
+    },
+
+    /**
+     * 撤销（含95%退款逻辑）
+     */
+    async cancel(id) {
+        return await request(`/reservations/${id}/cancel`, {
+            method: "POST",
+        });
+    },
+
+    /**
      * 删除预约
      */
     async delete(id) {
@@ -203,6 +234,37 @@ export const reservationAPI = {
             method: "DELETE",
         });
     }
+};
+
+// 财务对接相关 API
+export const financeAPI = {
+    /**
+     * 查询缴费单
+     */
+    async getPayment(orderNo) {
+        return await request(`/finance/payments/${encodeURIComponent(orderNo)}`);
+    },
+
+    /**
+     * Mock：更新缴费单状态（pending/paid/failed）
+     */
+    async mockUpdatePayment(orderNo, payload) {
+        return await request(`/finance/mock/payments/${encodeURIComponent(orderNo)}`, {
+            method: "POST",
+            body: payload,
+        });
+    },
+
+    /**
+     * Mock：财务回调入口
+     */
+    async callback(payload) {
+        return await request("/finance/callback", {
+            method: "POST",
+            body: payload,
+            requiresAuth: false,
+        });
+    },
 };
 
 // 人员台账相关 API
