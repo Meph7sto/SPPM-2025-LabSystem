@@ -72,6 +72,18 @@ def _ensure_finance_payment(db: Session, reservation: Reservation) -> None:
 
 
 def determine_initial_step(borrower_type: BorrowerType | None) -> ApprovalStep:
+    """根据借用人类型确定初始审批步骤"""
+    if borrower_type == BorrowerType.STUDENT:
+        return ApprovalStep.ADVISOR  # 学生先导师审批
+    elif borrower_type == BorrowerType.EXTERNAL:
+        return ApprovalStep.ADMIN    # 校外先管理员审批
+    else:
+        # 保持订单号与金额一致
+        finance_payment.order_no = reservation.payment_order_no
+        finance_payment.amount = reservation.payment_amount
+
+
+def determine_initial_step(borrower_type: BorrowerType | None) -> ApprovalStep:
     """
     根据借用人类型确定初始审批步骤。
 
