@@ -9,8 +9,12 @@
         </p>
       </div>
       <div class="page-actions">
-        <button type="button" class="ghost">同步财务</button>
-        <button type="button" class="primary">批量确认</button>
+        <button type="button" class="ghost" @click="syncAll" :disabled="loading">
+          同步财务
+        </button>
+        <button type="button" class="primary" @click="finalizeAll" :disabled="loading || finalConfirmations.length === 0">
+          批量确认
+        </button>
       </div>
     </section>
 
@@ -39,14 +43,17 @@
               <button
                 type="button"
                 class="primary"
-                :disabled="item.status !== '待确认'"
-                @click="confirmPayment(item.id)"
+                :disabled="item.status !== '待确认' || loading"
+                @click="confirmPayment(item)"
               >
                 确认收款
               </button>
-              <button type="button" class="ghost">查看详情</button>
+              <button type="button" class="ghost" :disabled="loading" @click="syncOne(item)">
+                同步
+              </button>
             </div>
           </div>
+          <p v-if="error" class="form-hint">{{ error }}</p>
         </div>
       </div>
 
@@ -105,6 +112,7 @@
               <span class="approval-status">{{ item.status }}</span>
             </div>
           </div>
+          <p v-if="error" class="form-hint">{{ error }}</p>
         </div>
       </div>
     </section>
@@ -112,60 +120,174 @@
 </template>
 
 <script setup>
-import { ref } from "vue";
+import { computed, onMounted, ref } from "vue";
+import { financeAPI, reservationAPI } from "../api";
 
-const payments = ref([
-  {
-    id: "F-2210",
-    detail: "校外 · 产业合作 · C-118 光学平台",
-    amount: 5400,
-    status: "待确认",
-  },
-  {
-    id: "F-2207",
-    detail: "校外 · 新材料企业 · B-203 热分析平台",
-    amount: 3200,
-    status: "已确认",
-  },
-  {
-    id: "F-2201",
-    detail: "校外 · 产业合作 · A-417 光谱仪",
-    amount: 2800,
-    status: "退款处理中",
-  },
-]);
+const loading = ref(false);
+const error = ref("");
 
-const finalConfirmations = ref([
-  {
-    id: "R-2011",
-    title: "校外 · 产业合作",
-    detail: "C-118 光学平台 · 4 月 18 日 14:00 - 16:00",
-    status: "待确认",
-  },
-  {
-    id: "R-2012",
-    title: "校外 · 新材料企业",
-    detail: "B-203 热分析平台 · 4 月 19 日 10:00 - 12:00",
-    status: "待确认",
-  },
-]);
+const paymentReservations = ref([]);
+const finalReservations = ref([]);
+
+const payments = computed(() =>
+  paymentReservations.value
+    .filter((r) => r.user?.borrower_type === "external")
+    .map((r) => {
+      const statusLabel =
+        r.payment_status === "pending"
+          ? "待确认"
+          : r.payment_status === "paid"
+          ? "已确认"
+          : r.payment_status === "refunded"
+          ? "已退款"
+          : "待确认";
+      return {
+        id: r.payment_order_no || `R-${r.id}`,
+        reservationId: r.id,
+        orderNo: r.payment_order_no,
+        detail: `校外 · ${r.user?.organization || r.user?.name || "申请人"} · ${
+          r.device?.model || "设备"
+        }`,
+        amount: Number(r.payment_amount || 0),
+        status: statusLabel,
+        raw: r,
+      };
+    })
+);
+
+const finalConfirmations = computed(() =>
+  finalReservations.value
+    .filter((r) => r.user?.borrower_type === "external")
+    .map((r) => ({
+      id: r.id,
+      title: `校外 · ${r.user?.organization || r.user?.name || "申请人"}`,
+      detail: `${r.device?.model || "设备"} · ${formatDateRange(r.start_time, r.end_time)}`,
+      status: "待确认",
+      raw: r,
+    }))
+);
 
 const statusClass = (status) => {
   if (status === "待确认") return "chip-warn";
   if (status === "已确认") return "chip-good";
   if (status === "退款处理中") return "chip-alert";
+  if (status === "已退款") return "chip-alert";
   return "chip-neutral";
 };
 
-const confirmPayment = (id) => {
-  const target = payments.value.find((item) => item.id === id);
-  if (!target) return;
-  target.status = "已确认";
+const formatDateRange = (start, end) => {
+  if (!start || !end) return "未指定时间";
+  const startDate = new Date(start);
+  const endDate = new Date(end);
+  const date = startDate.toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" });
+  const startTime = startDate.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
+  const endTime = endDate.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
+  return `${date} ${startTime} - ${endTime}`;
 };
 
-const finalize = (id) => {
-  const target = finalConfirmations.value.find((item) => item.id === id);
-  if (!target) return;
-  target.status = "已生效";
+const fetchQueues = async () => {
+  loading.value = true;
+  error.value = "";
+  try {
+    const [paymentRes, finalRes] = await Promise.all([
+      reservationAPI.list(null, 0, 200, { current_step: "payment" }),
+      reservationAPI.list(null, 0, 200, { current_step: "final" }),
+    ]);
+    paymentReservations.value = paymentRes.data?.items || [];
+    // 仅把已缴费（或无需缴费但走到final的）留给最终确认队列，这里外部只需 paid
+    finalReservations.value = (finalRes.data?.items || []).filter(
+      (r) => r.user?.borrower_type !== "external" || r.payment_status === "paid"
+    );
+  } catch (err) {
+    console.error("Failed to fetch payment queues:", err);
+    error.value = err.message || "缴费队列加载失败";
+  } finally {
+    loading.value = false;
+  }
 };
+
+const syncOne = async (item) => {
+  if (!item?.reservationId) return;
+  loading.value = true;
+  error.value = "";
+  try {
+    await reservationAPI.syncPayment(item.reservationId);
+    await fetchQueues();
+  } catch (err) {
+    console.error("Failed to sync payment:", err);
+    error.value = err.message || "同步财务失败";
+  } finally {
+    loading.value = false;
+  }
+};
+
+const syncAll = async () => {
+  if (payments.value.length === 0) return;
+  loading.value = true;
+  error.value = "";
+  try {
+    await Promise.all(
+      payments.value.map((p) => reservationAPI.syncPayment(p.reservationId))
+    );
+    await fetchQueues();
+  } catch (err) {
+    console.error("Failed to sync all payments:", err);
+    error.value = err.message || "同步财务失败";
+  } finally {
+    loading.value = false;
+  }
+};
+
+// 用于演示：点击“确认收款”会走 Mock 财务更新 + 同步（真实对接时应由财务系统回传）
+const confirmPayment = async (item) => {
+  if (!item?.orderNo || !item?.reservationId) {
+    error.value = "该预约未生成缴费单号";
+    return;
+  }
+  loading.value = true;
+  error.value = "";
+  try {
+    await financeAPI.mockUpdatePayment(item.orderNo, { status: "paid" });
+    await reservationAPI.syncPayment(item.reservationId);
+    await fetchQueues();
+  } catch (err) {
+    console.error("Failed to confirm payment:", err);
+    error.value = err.message || "确认收款失败";
+  } finally {
+    loading.value = false;
+  }
+};
+
+const finalize = async (reservationId) => {
+  loading.value = true;
+  error.value = "";
+  try {
+    await reservationAPI.finalize(reservationId);
+    await fetchQueues();
+  } catch (err) {
+    console.error("Failed to finalize:", err);
+    error.value = err.message || "最终确认失败";
+  } finally {
+    loading.value = false;
+  }
+};
+
+const finalizeAll = async () => {
+  if (finalConfirmations.value.length === 0) return;
+  loading.value = true;
+  error.value = "";
+  try {
+    await Promise.all(finalConfirmations.value.map((r) => reservationAPI.finalize(r.id)));
+    await fetchQueues();
+  } catch (err) {
+    console.error("Failed to finalize all:", err);
+    error.value = err.message || "批量最终确认失败";
+  } finally {
+    loading.value = false;
+  }
+};
+
+onMounted(() => {
+  fetchQueues();
+});
 </script>
