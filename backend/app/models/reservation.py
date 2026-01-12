@@ -136,8 +136,8 @@ class Reservation(Base):
 
     # 支付订单号 (外部支付系统流水号)
     payment_order_no: Mapped[str | None] = mapped_column(String(64), nullable=True)
-
     # 支付完成时间
+    payment_voucher_ref: Mapped[str | None] = mapped_column(String(255), nullable=True)
     payment_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # 退款金额

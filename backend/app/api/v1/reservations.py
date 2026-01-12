@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from typing import List
 
 from fastapi import APIRouter, Depends, Query
@@ -9,12 +10,65 @@ from sqlalchemy.orm import Session, joinedload
 from ...core.errors import AppError, ErrorCode, NotFoundError
 from ...core.response import ok
 from ...db.session import get_db
+from ...models.device import Device
+from ...models.finance import FinancePayment, RefundRecord
 from ...models.reservation import Reservation, ReservationStatus, PaymentStatus, ApprovalStep
 from ...models.user import User, UserRole, BorrowerType
 from ...schemas import ReservationCreate, ReservationDetail, ReservationUpdate, ReservationListItem
 from ..deps import get_current_user, require_roles
 
 router = APIRouter(prefix="/reservations")
+
+
+def _compute_payment_amount(reservation: Reservation, device: Device) -> float:
+    price = float(device.rental_price or 0.0)
+    if price <= 0:
+        return 0.0
+    start = reservation.start_time
+    end = reservation.end_time
+    try:
+        seconds = (end - start).total_seconds()
+    except Exception:
+        seconds = 0
+    hours = max(seconds / 3600.0, 1.0)
+    return round(price * hours, 2)
+
+
+def _ensure_finance_payment(db: Session, reservation: Reservation) -> None:
+    """确保校外预约在进入缴费步骤时生成缴费单（T28）。"""
+    if reservation.payment_status != PaymentStatus.PENDING:
+        return
+    if reservation.current_step != ApprovalStep.PAYMENT:
+        return
+    if not reservation.user or reservation.user.borrower_type != BorrowerType.EXTERNAL:
+        return
+
+    finance_payment = db.execute(
+        select(FinancePayment).where(FinancePayment.reservation_id == reservation.id)
+    ).scalar_one_or_none()
+
+    if not reservation.payment_order_no:
+        order_no = f"F-{datetime.utcnow():%Y%m%d}-{reservation.id:06d}"
+        reservation.payment_order_no = order_no
+
+    if reservation.payment_amount <= 0:
+        device = db.get(Device, reservation.device_id)
+        if device:
+            reservation.payment_amount = _compute_payment_amount(reservation, device)
+
+    if not finance_payment:
+        db.add(
+            FinancePayment(
+                order_no=reservation.payment_order_no,
+                reservation_id=reservation.id,
+                amount=reservation.payment_amount,
+                status="pending",
+            )
+        )
+    else:
+        # 保持订单号与金额一致
+        finance_payment.order_no = reservation.payment_order_no
+        finance_payment.amount = reservation.payment_amount
 
 
 def determine_initial_step(borrower_type: BorrowerType | None) -> ApprovalStep:
@@ -177,6 +231,8 @@ def list_reservations(
     limit: int = Query(20, ge=1, le=100),
     status: ReservationStatus | None = Query(None, description="按状态筛选"),
     device_id: int | None = Query(None, description="按设备筛选"),
+    current_step: ApprovalStep | None = Query(None, description="按审批步骤筛选"),
+    payment_status: PaymentStatus | None = Query(None, description="按支付状态筛选"),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> dict:
@@ -213,6 +269,10 @@ def list_reservations(
         stmt = stmt.where(Reservation.status == status)
     if device_id:
         stmt = stmt.where(Reservation.device_id == device_id)
+    if current_step is not None:
+        stmt = stmt.where(Reservation.current_step == current_step)
+    if payment_status is not None:
+        stmt = stmt.where(Reservation.payment_status == payment_status)
     
     # 获取总数
     count_stmt = select(func.count()).select_from(stmt.subquery())
@@ -234,6 +294,121 @@ def list_reservations(
         "skip": skip,
         "limit": limit,
     })
+
+
+@router.post("/{reservation_id}/payment/sync", response_model=dict)
+def sync_payment_status(
+    reservation_id: int,
+    current_user: User = Depends(require_roles(UserRole.ADMIN, UserRole.HEAD)),
+    db: Session = Depends(get_db),
+) -> dict:
+    """从财务系统同步缴费确认（T29）。"""
+    reservation = db.get(Reservation, reservation_id)
+    if not reservation:
+        raise NotFoundError(f"预约不存在 (id={reservation_id})")
+    if not reservation.payment_order_no:
+        raise AppError(ErrorCode.INVALID_REQUEST, "该预约未生成缴费单")
+
+    fp = db.execute(
+        select(FinancePayment).where(FinancePayment.order_no == reservation.payment_order_no)
+    ).scalar_one_or_none()
+    if not fp:
+        raise NotFoundError(f"缴费单不存在 (order_no={reservation.payment_order_no})")
+
+    if fp.status == "paid":
+        reservation.payment_status = PaymentStatus.PAID
+        reservation.payment_time = fp.paid_time
+        if reservation.current_step == ApprovalStep.PAYMENT:
+            reservation.status = ReservationStatus.APPROVED
+            reservation.current_step = ApprovalStep.FINAL
+
+    db.commit()
+    db.refresh(reservation)
+    return ok(ReservationDetail.model_validate(reservation).model_dump(), message="已同步财务状态")
+
+
+@router.post("/{reservation_id}/finalize", response_model=dict)
+def finalize_reservation(
+    reservation_id: int,
+    current_user: User = Depends(require_roles(UserRole.ADMIN)),
+    db: Session = Depends(get_db),
+) -> dict:
+    """管理员最终确认：缴费确认成功后才能进入“已生效/可借出”（T32）。"""
+    reservation = db.get(Reservation, reservation_id)
+    if not reservation:
+        raise NotFoundError(f"预约不存在 (id={reservation_id})")
+
+    if reservation.current_step != ApprovalStep.FINAL:
+        raise AppError(ErrorCode.INVALID_REQUEST, "当前预约不在最终确认步骤")
+
+    if reservation.user and reservation.user.borrower_type == BorrowerType.EXTERNAL:
+        if reservation.payment_status != PaymentStatus.PAID:
+            raise AppError(ErrorCode.INVALID_REQUEST, "校外预约必须缴费成功后才能最终确认")
+
+    reservation.status = ReservationStatus.EFFECTIVE
+    reservation.current_step = None
+    db.commit()
+    db.refresh(reservation)
+    return ok(ReservationDetail.model_validate(reservation).model_dump(), message="最终确认成功")
+
+
+@router.post("/{reservation_id}/cancel", response_model=dict)
+def cancel_reservation_with_refund(
+    reservation_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    """撤销预约：若已付费则按 95% 自动退款并生成退款记录（T33）。"""
+    reservation = db.get(Reservation, reservation_id)
+    if not reservation:
+        raise NotFoundError(f"预约不存在 (id={reservation_id})")
+
+    is_admin = current_user.role in [UserRole.ADMIN, UserRole.HEAD]
+    is_owner = reservation.user_id == current_user.id
+    if not (is_admin or is_owner):
+        raise AppError(ErrorCode.PERMISSION_DENIED, "无权撤销该预约")
+
+    if reservation.status in [ReservationStatus.BORROWED, ReservationStatus.COMPLETED]:
+        raise AppError(ErrorCode.INVALID_REQUEST, "已借出/已完成的预约不能撤销")
+
+    refund_amount = 0.0
+    if reservation.payment_status == PaymentStatus.PAID and (reservation.payment_amount or 0) > 0:
+        refund_amount = round(float(reservation.payment_amount) * 0.95, 2)
+        reservation.payment_status = PaymentStatus.REFUNDED
+        reservation.refund_amount = refund_amount
+        reservation.refund_time = datetime.utcnow()
+
+        db.add(
+            RefundRecord(
+                reservation_id=reservation.id,
+                order_no=reservation.payment_order_no,
+                original_amount=float(reservation.payment_amount),
+                refund_rate=0.95,
+                refund_amount=refund_amount,
+                status="processed",
+            )
+        )
+
+        # 同步更新财务侧订单状态（Mock）
+        fp = None
+        if reservation.payment_order_no:
+            fp = db.execute(
+                select(FinancePayment).where(FinancePayment.order_no == reservation.payment_order_no)
+            ).scalar_one_or_none()
+        if fp:
+            fp.status = "refunded"
+
+    reservation.status = ReservationStatus.CANCELLED
+    reservation.current_step = None
+    db.commit()
+    db.refresh(reservation)
+    return ok(
+        {
+            "reservation": ReservationDetail.model_validate(reservation).model_dump(),
+            "refund_amount": refund_amount,
+        },
+        message="预约已撤销" if refund_amount == 0 else "预约已撤销并退款",
+    )
 
 
 @router.put("/{reservation_id}", response_model=dict)
@@ -284,6 +459,9 @@ def update_reservation(
     # 执行更新
     for key, value in update_data.items():
         setattr(reservation, key, value)
+
+    # T28: 校外预约进入缴费步骤时生成缴费单
+    _ensure_finance_payment(db, reservation)
     
     db.commit()
     db.refresh(reservation)

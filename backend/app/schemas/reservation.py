@@ -44,8 +44,8 @@ class ReservationUpdate(BaseModel):
     # 支付相关字段
     payment_status: PaymentStatus | None = None
     payment_amount: float | None = None
-
     # 审批信息
+    payment_voucher_ref: str | None = None
     approver_id: int | None = None
     approval_comment: str | None = None
 
@@ -102,6 +102,7 @@ class ReservationOut(BaseModel):
     payment_amount: float
     payment_status: PaymentStatus
     payment_order_no: str | None
+    payment_voucher_ref: str | None
     payment_time: datetime | None
     refund_amount: float | None
     refund_time: datetime | None
