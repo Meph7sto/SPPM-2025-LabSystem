@@ -1,16 +1,15 @@
-from fastapi import APIRouter, Depends
-from sqlalchemy.orm import Session
-from sqlalchemy import func
-from app.models.reservation import Reservation, ReservationStatus, PaymentStatus
-from app.db.session import get_db
+from datetime import date, timedelta, datetime
 from io import BytesIO
+from urllib.parse import quote
+
+from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 from openpyxl import Workbook
-from datetime import date, timedelta, datetime
-from ...models.device import Device
-from ...models.reservation import Reservation, ReservationStatus
-from urllib.parse import quote
-import pandas as pd
+from sqlalchemy import func
+from sqlalchemy.orm import Session
+
+from ...db.session import get_db
+from ...models.reservation import Reservation, ReservationStatus, PaymentStatus
 
 router = APIRouter(prefix="/reports", tags=["reports"])
 
