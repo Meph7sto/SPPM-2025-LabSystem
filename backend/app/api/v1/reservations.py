@@ -18,25 +18,44 @@ router = APIRouter(prefix="/reservations")
 
 
 def determine_initial_step(borrower_type: BorrowerType | None) -> ApprovalStep:
-    """根据借用人类型确定初始审批步骤"""
+    """
+    根据借用人类型确定初始审批步骤。
+
+    - 学生 -> 导师审批
+    - 校外人员 -> 管理员审批 (随后可能需要负责人审批)
+    - 教师 -> 管理员审批
+    """
     if borrower_type == BorrowerType.STUDENT:
-        return ApprovalStep.ADVISOR  # 学生先导师审批
+        return ApprovalStep.ADVISOR
     elif borrower_type == BorrowerType.EXTERNAL:
-        return ApprovalStep.ADMIN    # 校外先管理员审批
+        return ApprovalStep.ADMIN
     else:
-        return ApprovalStep.ADMIN    # 教师直接管理员审批
+        return ApprovalStep.ADMIN
 
 
 def determine_payment_status(borrower_type: BorrowerType | None) -> PaymentStatus:
-    """根据借用人类型确定支付状态"""
+    """
+    根据借用人类型确定初始支付状态。
+
+    - 校外人员 -> 待支付 (需走付费流程)
+    - 校内人员 -> 无需支付
+    """
     if borrower_type == BorrowerType.EXTERNAL:
-        return PaymentStatus.PENDING  # 校外人员需要支付
+        return PaymentStatus.PENDING
     else:
-        return PaymentStatus.NOT_REQUIRED  # 校内人员无需支付
+        return PaymentStatus.NOT_REQUIRED
 
 
 def compute_next_action(reservation: Reservation) -> dict | None:
-    """根据当前审批步骤计算下一步动作（用于前端提交审批）"""
+    """
+    计算当前预约单的下一步审批动作（用于前端显示和引导）。
+
+    根据当前状态和步骤，预测如果当前步骤通过，下一个状态是什么。
+
+    Returns:
+        dict: 包含 'status' 和 'current_step' 的字典，表示下一步的状态。
+    """
+    # 只有在进行中的状态才需要计算下一步
     if reservation.status not in [
         ReservationStatus.PENDING,
         ReservationStatus.ADVISOR_APPROVED,
@@ -48,31 +67,39 @@ def compute_next_action(reservation: Reservation) -> dict | None:
     step = reservation.current_step
     borrower_type = reservation.user.borrower_type if reservation.user else None
 
+    # 1. 导师审批 -> 管理员审批
     if step == ApprovalStep.ADVISOR:
         return {
             "status": ReservationStatus.ADVISOR_APPROVED.value,
             "current_step": ApprovalStep.ADMIN.value,
         }
+    # 2. 管理员审批
     if step == ApprovalStep.ADMIN:
         if borrower_type == BorrowerType.EXTERNAL:
+            # 校外人员：管理员 -> 负责人
             return {
                 "status": ReservationStatus.ADMIN_APPROVED.value,
                 "current_step": ApprovalStep.HEAD.value,
             }
+        # 校内人员：管理员 -> 终审 (直接通过)
         return {
             "status": ReservationStatus.APPROVED.value,
             "current_step": ApprovalStep.FINAL.value,
         }
+    # 3. 负责人审批 -> 支付/终审
     if step == ApprovalStep.HEAD:
+        # 简化逻辑：负责人审批通过后进入支付环节
         return {
             "status": ReservationStatus.HEAD_APPROVED.value,
             "current_step": ApprovalStep.PAYMENT.value,
         }
+    # 4. 支付环节 -> 终审
     if step == ApprovalStep.PAYMENT:
         return {
             "status": ReservationStatus.APPROVED.value,
             "current_step": ApprovalStep.FINAL.value,
         }
+    # 5. 终审环节 -> 结束 (Approved)
     if step == ApprovalStep.FINAL:
         return {
             "status": ReservationStatus.APPROVED.value,
@@ -87,11 +114,15 @@ def create_reservation(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> dict:
-    """创建新预约申请"""
-    # 确定初始审批步骤和支付状态
+    """
+    创建新预约申请。
+    自动初始化审批流程状态。
+    """
+    # 1. 确定初始状态
     initial_step = determine_initial_step(current_user.borrower_type)
     payment_status = determine_payment_status(current_user.borrower_type)
     
+    # 2. 创建记录
     reservation = Reservation(
         user_id=current_user.id,
         status=ReservationStatus.PENDING,
@@ -111,18 +142,25 @@ def get_reservation(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> dict:
-    """获取预约详情"""
+    """
+    获取预约详情。
+
+    包含权限检查：
+    - 管理员/负责人：可查看所有
+    - 申请人：可查看自己申请的
+    - 导师：可查看自己指导学生的申请
+    """
     reservation = db.get(Reservation, reservation_id)
     if not reservation:
         raise NotFoundError(f"预约不存在 (id={reservation_id})")
     
-    # 权限检查: 管理员/负责人 或 申请人本人
+    # 权限检查
     if current_user.role not in [UserRole.ADMIN, UserRole.HEAD] and reservation.user_id != current_user.id:
-        # 如果是导师，检查是否是其学生的预约
+        # 特殊逻辑：导师查看学生
         if current_user.borrower_type == BorrowerType.TEACHER:
             applicant = db.get(User, reservation.user_id)
             if applicant and applicant.advisor_no == current_user.teacher_no:
-                pass  # 允许导师查看学生的预约
+                pass  # 允许
             else:
                 raise AppError(ErrorCode.PERMISSION_DENIED, "无权查看该预约")
         else:
@@ -142,7 +180,14 @@ def list_reservations(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> dict:
-    """获取预约列表"""
+    """
+    获取预约列表。
+
+    根据用户角色自动过滤：
+    - 管理员/负责人：查看所有（可筛选）
+    - 教师：查看自己 + 指导的学生
+    - 学生/校外：仅查看自己
+    """
     stmt = select(Reservation).options(
         joinedload(Reservation.device),
         joinedload(Reservation.user),
@@ -151,7 +196,7 @@ def list_reservations(
     # 权限过滤
     if current_user.role not in [UserRole.ADMIN, UserRole.HEAD]:
         if current_user.borrower_type == BorrowerType.TEACHER:
-            # 教师可以看自己的预约 + 其指导学生的预约
+            # 教师视角：自己 + 学生
             student_ids = db.execute(
                 select(User.id).where(User.advisor_no == current_user.teacher_no)
             ).scalars().all()
@@ -160,6 +205,7 @@ def list_reservations(
                 (Reservation.user_id.in_(student_ids))
             )
         else:
+            # 普通视角：仅自己
             stmt = stmt.where(Reservation.user_id == current_user.id)
     
     # 条件筛选
@@ -172,7 +218,7 @@ def list_reservations(
     count_stmt = select(func.count()).select_from(stmt.subquery())
     total = db.execute(count_stmt).scalar() or 0
     
-    # 分页并排序
+    # 分页并排序 (最新优先)
     stmt = stmt.order_by(Reservation.created_at.desc()).offset(skip).limit(limit)
     reservations = db.execute(stmt).scalars().all()
     
@@ -197,7 +243,16 @@ def update_reservation(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> dict:
-    """更新预约信息"""
+    """
+    更新预约信息。
+
+    普通用户（申请人）仅能：
+    1. 在待审批或退回状态下修改时间/描述。
+    2. 在待审批或退回状态下取消预约。
+
+    管理员/负责人：
+    1. 拥有完全修改权限。
+    """
     reservation = db.get(Reservation, reservation_id)
     if not reservation:
         raise NotFoundError(f"预约不存在 (id={reservation_id})")
@@ -211,27 +266,28 @@ def update_reservation(
     update_data = payload.model_dump(exclude_unset=True)
     
     if not is_admin:
-        # 申请人限制
-        # 只能在待审批或退回补充材料状态下修改
+        # 普通用户限制逻辑
+        # 1. 只能在 PENDING 或 RETURNED 状态修改
         if reservation.status not in [ReservationStatus.PENDING, ReservationStatus.RETURNED]:
             raise AppError(ErrorCode.INVALID_REQUEST, "当前状态不允许修改")
         
-        # 申请人只能取消或修改描述/时间
+        # 2. 字段白名单过滤
         allowed_fields = {"start_time", "end_time", "description", "status", "contact"}
         for key in list(update_data.keys()):
             if key not in allowed_fields:
                 del update_data[key]
         
-        # 只能取消
+        # 3. 状态限制：只能改为 CANCELLED
         if "status" in update_data and update_data["status"] != ReservationStatus.CANCELLED:
-            raise AppError(ErrorCode.PERMISSION_DENIED, "只能取消预约")
+            raise AppError(ErrorCode.PERMISSION_DENIED, "只能执行取消操作")
 
+    # 执行更新
     for key, value in update_data.items():
         setattr(reservation, key, value)
     
     db.commit()
     db.refresh(reservation)
-    return ok(ReservationDetail.model_validate(reservation).model_dump())
+    return ok(ReservationDetail.model_validate(reservation).model_dump(), message="预约更新成功")
 
 
 @router.delete("/{reservation_id}", response_model=dict)
@@ -240,7 +296,10 @@ def delete_reservation(
     current_user: User = Depends(require_roles(UserRole.ADMIN, UserRole.HEAD)),
     db: Session = Depends(get_db),
 ) -> dict:
-    """删除预约（管理员/负责人）"""
+    """
+    删除预约记录（仅管理员/负责人）。
+    慎用，通常建议使用取消或归档代替物理删除。
+    """
     reservation = db.get(Reservation, reservation_id)
     if not reservation:
         raise NotFoundError(f"预约不存在 (id={reservation_id})")
@@ -257,7 +316,14 @@ def get_reservation_ledger_summary(
     current_user: User = Depends(require_roles(UserRole.ADMIN, UserRole.HEAD)),
     db: Session = Depends(get_db),
 ) -> dict:
-    """获取预约台账统计摘要（管理员/负责人）"""
+    """
+    获取预约台账统计摘要（管理员/负责人）。
+
+    用于仪表盘展示：
+    - 按状态统计
+    - 按支付状态统计
+    - 总记录数
+    """
     # 按状态统计
     status_counts = {}
     for status in ReservationStatus:

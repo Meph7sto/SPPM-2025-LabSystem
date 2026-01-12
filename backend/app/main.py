@@ -15,10 +15,17 @@ def format_validation_errors(
 ) -> list[dict[str, str]]:
     """
     格式化请求验证错误信息。
-    将 Pydantic 验证错误转换为更友好的格式。
+    将 Pydantic 默认的验证错误结构转换为对前端更友好的格式。
+
+    Args:
+        exc (RequestValidationError): Pydantic 抛出的验证异常。
+
+    Returns:
+        list[dict[str, str]]: 格式化后的错误列表，每个元素包含 field 和 message。
     """
     details: list[dict[str, str]] = []
     for err in exc.errors():
+        # 获取错误发生的字段路径，排除 'body' 这一层级
         raw_loc = [str(item) for item in err.get("loc", [])]
         loc = ".".join([item for item in raw_loc if item != "body"])
         details.append(
@@ -38,37 +45,41 @@ app = FastAPI(
     redoc_url=f"{settings.api_prefix}/redoc",
 )
 
-# 解析 CORS 允许的源
+# 解析 CORS 允许的源 (从配置中读取并分割)
 allowed_origins = [
     origin.strip()
     for origin in settings.cors_origins.split(",")
     if origin.strip()
 ]
 
-# 添加 CORS 中间件
+# 添加 CORS 中间件，解决跨域访问问题
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["*"], # 允许所有 HTTP 方法
+    allow_headers=["*"], # 允许所有 Header
 )
 
-# 注册 API 路由
+# 注册 API 路由 (V1版本)
 app.include_router(v1_router, prefix=settings.api_prefix)
 
 
 @app.get("/")
 def root() -> dict[str, object]:
-    """根路径，用于检查服务是否运行"""
+    """
+    根路径接口。
+    用于简单的服务存活检查 (Ping)。
+    """
     return ok({"service": settings.app_name})
 
 
 @app.exception_handler(AppError)
 async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
     """
-    统一处理自定义 AppError 异常。
-    返回规范的 JSON 错误响应。
+    全局异常处理器：处理自定义的业务异常 (AppError)。
+
+    将业务逻辑中抛出的 AppError 转换为统一格式的 JSON 响应。
     """
     return JSONResponse(
         status_code=exc.status_code,
@@ -82,7 +93,10 @@ async def validation_exception_handler(
     exc: RequestValidationError,
 ) -> JSONResponse:
     """
-    处理请求参数验证错误。
+    全局异常处理器：处理请求参数验证异常 (RequestValidationError)。
+
+    当前端传递的参数不符合 Pydantic 模型定义时触发。
+    返回 422 Unprocessable Entity 状态码。
     """
     details = format_validation_errors(exc)
     return JSONResponse(
@@ -97,8 +111,10 @@ async def http_exception_handler(
     exc: StarletteHTTPException,
 ) -> JSONResponse:
     """
-    处理标准 HTTP 异常。
-    将其映射到应用错误代码。
+    全局异常处理器：处理标准 HTTP 异常。
+
+    例如 404 Not Found (路径不存在), 405 Method Not Allowed 等。
+    将它们转换为统一的 JSON 错误响应结构。
     """
     code_map = {
         400: ErrorCode.BAD_REQUEST,
@@ -107,6 +123,7 @@ async def http_exception_handler(
         404: ErrorCode.NOT_FOUND,
         409: ErrorCode.CONFLICT,
     }
+    # 默认为 INTERNAL_ERROR，除非在映射表中找到对应
     code = code_map.get(exc.status_code, ErrorCode.INTERNAL_ERROR)
     message = exc.detail if isinstance(exc.detail, str) else "Request failed"
     return JSONResponse(
@@ -121,8 +138,12 @@ async def unhandled_exception_handler(
     exc: Exception,
 ) -> JSONResponse:
     """
-    处理所有未捕获的异常（500 错误）。
+    全局异常处理器：处理所有未捕获的异常 (兜底)。
+
+    通常是代码 bug 或未预料到的系统错误。
+    返回 500 Internal Server Error，并隐藏具体错误堆栈以保证安全。
     """
+    # 在实际生产环境中，这里应该记录错误日志 (logging.error)
     return JSONResponse(
         status_code=500,
         content=error(ErrorCode.INTERNAL_ERROR, "Internal server error"),
