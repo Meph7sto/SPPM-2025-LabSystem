@@ -102,6 +102,7 @@ class Reservation(Base):
         nullable=False,
     )
     payment_order_no: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    payment_voucher_ref: Mapped[str | None] = mapped_column(String(255), nullable=True)
     payment_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     refund_amount: Mapped[float | None] = mapped_column(Float, nullable=True)
     refund_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
