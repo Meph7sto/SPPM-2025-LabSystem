@@ -23,7 +23,9 @@ def to_user_out(user: User) -> UserOut:
 
 @router.get("/me/profile", response_model=dict)
 def get_my_profile(current_user: User = Depends(get_current_user)) -> dict:
-    """获取当前用户的个人资料"""
+    """
+    获取当前用户的个人资料。
+    """
     return ok(to_user_out(current_user).model_dump())
 
 
@@ -33,7 +35,12 @@ def update_my_profile(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> dict:
-    """更新当前用户的个人资料"""
+    """
+    更新当前用户的个人资料。
+
+    注意：仅允许更新非敏感信息（如联系方式）。
+    身份信息（如工号、学号）必须由管理员修改。
+    """
     # 只更新提供的字段
     if payload.name is not None:
         current_user.name = payload.name
@@ -60,7 +67,11 @@ def get_my_reservations(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> dict:
-    """获取当前用户的所有预约记录（我的预约入口）"""
+    """
+    获取当前用户的所有预约记录（我的预约）。
+
+    按时间倒序排列，包含详细信息。
+    """
     # 查询当前用户的所有预约
     stmt = (
         select(Reservation)
@@ -79,4 +90,3 @@ def get_my_reservations(
         [r.model_dump() for r in result],
         message="My reservations retrieved successfully",
     )
-

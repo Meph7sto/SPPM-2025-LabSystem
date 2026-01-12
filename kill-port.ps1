@@ -47,23 +47,23 @@ foreach ($Port in $Ports) {
         continue
     }
 
-    foreach ($pid in $pids) {
-        $proc = Get-Process -Id $pid -ErrorAction SilentlyContinue
+    foreach ($processId in $pids) {
+        $proc = Get-Process -Id $processId -ErrorAction SilentlyContinue
         if ($proc) {
             $name = $proc.ProcessName
             try {
                 if ($Force) {
-                    Stop-Process -Id $pid -Force
-                    Write-Host "      已强制强制结束 $name (PID: $pid) 占用的端口 $Port" -ForegroundColor Green
+                    Stop-Process -Id $processId -Force
+                    Write-Host "      已强制强制结束 $name (PID: $processId) 占用的端口 $Port" -ForegroundColor Green
                 } else {
-                    Stop-Process -Id $pid
-                    Write-Host "      已结束 $name (PID: $pid) 占用的端口 $Port" -ForegroundColor Green
+                    Stop-Process -Id $processId
+                    Write-Host "      已结束 $name (PID: $processId) 占用的端口 $Port" -ForegroundColor Green
                 }
             } catch {
-                Write-Host "      [错误] 无法结束 PID $pid (端口 $Port): $($_.Exception.Message)" -ForegroundColor Red
+                Write-Host "      [错误] 无法结束 PID $processId (端口 $Port): $($_.Exception.Message)" -ForegroundColor Red
             }
         } else {
-            Write-Host "      未找到相关的进程 (PID: $pid)" -ForegroundColor Gray
+            Write-Host "      未找到相关的进程 (PID: $processId)" -ForegroundColor Gray
         }
     }
 }
