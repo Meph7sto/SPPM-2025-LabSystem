@@ -211,9 +211,6 @@ node_modules/
 dist/
 .vite/
 
-requirement.txt
-mission_list.txt
-need.txt
 
 # Data
 data/
