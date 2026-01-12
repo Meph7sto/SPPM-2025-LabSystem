@@ -2,7 +2,7 @@
 # 用法: .\db.ps1 {init|upgrade|downgrade|revision} [message]
 
 param(
-    [Parameter(Mandatory = $true)]
+    [Parameter(Mandatory = $true, Position = 0)]
     [ValidateSet("init", "upgrade", "downgrade", "revision")]
     [string]$Command, # 执行的命令：初始化、升级、降级或生成修订版本
     [string]$Message = "auto" # 迁移消息 (仅 revision 命令需要)
@@ -38,7 +38,8 @@ try {
             alembic -c $AlembicIni revision --autogenerate -m $Message
         }
     }
-} finally {
+}
+finally {
     # 恢复原始目录
     Pop-Location
 }

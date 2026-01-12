@@ -120,7 +120,7 @@ if (-not $SkipMigrate) {
     $dbScriptPath = "$RepoRoot\backend\scripts\db.ps1"
     if (Test-Path $dbScriptPath) {
         try {
-            & $dbScriptPath init
+            & $dbScriptPath -Command "init"
             Write-Host "      数据库初始化完成" -ForegroundColor Green
         }
         catch {
