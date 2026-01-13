@@ -1,5 +1,6 @@
 // API 基础配置和工具函数
-const API_BASE_URL = "http://localhost:11451/api/v1";
+const API_BASE_URL = "/api/v1";
+
 
 /**
  * 获取认证 token
@@ -314,7 +315,25 @@ export const staffAPI = {
         });
     },
 };
+// 系统配置相关 API
+export const systemConfigAPI = {
+    /**
+     * 获取所有系统配置
+     */
+    async getConfig() {
+        return await request("/system-config");
+    },
 
+    /**
+     * 更新系统配置
+     */
+    async updateConfig(configData) {
+        return await request("/system-config", {
+            method: "PUT",
+            body: configData,
+        });
+    },
+};
 /**
  * 从 localStorage 获取用户信息
  */

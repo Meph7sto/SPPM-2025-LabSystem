@@ -9,6 +9,7 @@ from .finance import router as finance_router
 from .reservations import router as reservations_router
 from .staff import router as staff_router
 from .reports import router as reports_router
+from .system_config import router as system_config_router
 
 router = APIRouter()
 router.include_router(reports_router, prefix="/reports", tags=["reports"])
@@ -19,5 +20,6 @@ router.include_router(devices_router, tags=["devices"])
 router.include_router(finance_router, tags=["finance"])
 router.include_router(reservations_router, tags=["reservations"])
 router.include_router(staff_router, tags=["staff"])
+router.include_router(system_config_router, tags=["system-config"])
 
 
