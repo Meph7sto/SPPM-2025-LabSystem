@@ -15,6 +15,11 @@ from ...models.finance import FinancePayment, RefundRecord
 from ...models.reservation import Reservation, ReservationStatus, PaymentStatus, ApprovalStep
 from ...models.user import User, UserRole, BorrowerType
 from ...schemas import ReservationCreate, ReservationDetail, ReservationUpdate, ReservationListItem
+from ...services.notifications import (
+    notify_approval_result,
+    notify_payment_confirmed,
+    notify_submit_success,
+)
 from ..deps import get_current_user, require_roles
 
 router = APIRouter(prefix="/reservations")
@@ -197,6 +202,8 @@ def create_reservation(
         **payload.model_dump()
     )
     db.add(reservation)
+    db.flush()
+    notify_submit_success(db, user_id=current_user.id, reservation_id=reservation.id)
     db.commit()
     db.refresh(reservation)
     return ok(ReservationDetail.model_validate(reservation).model_dump())
@@ -327,12 +334,20 @@ def sync_payment_status(
     if not fp:
         raise NotFoundError(f"缴费单不存在 (order_no={reservation.payment_order_no})")
 
+    old_payment_status = reservation.payment_status
     if fp.status == "paid":
         reservation.payment_status = PaymentStatus.PAID
         reservation.payment_time = fp.paid_time
         if reservation.current_step == ApprovalStep.PAYMENT:
             reservation.status = ReservationStatus.APPROVED
             reservation.current_step = ApprovalStep.FINAL
+        if old_payment_status != PaymentStatus.PAID:
+            notify_payment_confirmed(
+                db,
+                to_user_id=reservation.user_id,
+                reservation_id=reservation.id,
+                order_no=reservation.payment_order_no,
+            )
 
     db.commit()
     db.refresh(reservation)
@@ -446,6 +461,7 @@ def update_reservation(
     
     is_admin = current_user.role in [UserRole.ADMIN, UserRole.HEAD]
     is_owner = reservation.user_id == current_user.id
+    old_status = reservation.status
     
     if not (is_admin or is_owner):
         raise AppError(ErrorCode.PERMISSION_DENIED, "无权修改该预约")
@@ -475,6 +491,24 @@ def update_reservation(
     # T28: 校外预约进入缴费步骤时生成缴费单
     _ensure_finance_payment(db, reservation)
     
+    # 审批结果通知
+    if reservation.status != old_status:
+        status_flag = None
+        if reservation.status == ReservationStatus.APPROVED:
+            status_flag = "approved"
+        elif reservation.status == ReservationStatus.REJECTED:
+            status_flag = "rejected"
+        elif reservation.status == ReservationStatus.RETURNED:
+            status_flag = "returned"
+        if status_flag:
+            notify_approval_result(
+                db,
+                to_user_id=reservation.user_id,
+                reservation_id=reservation.id,
+                status=status_flag,
+                from_user_id=current_user.id,
+            )
+
     db.commit()
     db.refresh(reservation)
     return ok(ReservationDetail.model_validate(reservation).model_dump(), message="预约更新成功")

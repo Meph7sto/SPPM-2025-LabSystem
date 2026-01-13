@@ -267,6 +267,26 @@ export const financeAPI = {
     },
 };
 
+// 通知相关 API
+export const notificationAPI = {
+    async list(params = {}) {
+        const query = new URLSearchParams(params).toString();
+        const endpoint = query ? `/notifications?${query}` : "/notifications";
+        return await request(endpoint);
+    },
+    async markRead(ids) {
+        return await request("/notifications/mark-read", {
+            method: "POST",
+            body: { ids },
+        });
+    },
+    async markAllRead() {
+        return await request("/notifications/mark-all-read", {
+            method: "POST",
+        });
+    },
+};
+
 // 人员台账相关 API
 export const staffAPI = {
     /**

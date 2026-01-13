@@ -9,13 +9,21 @@
         </p>
       </div>
       <div class="page-actions">
-        <button type="button" class="ghost">全部已读</button>
-        <button type="button" class="primary">通知设置</button>
+        <button type="button" class="ghost" :disabled="loading || !unreadCount" @click="handleMarkAllRead">
+          全部已读
+        </button>
+        <button type="button" class="primary" @click="fetchNotifications" :disabled="loading">
+          刷新
+        </button>
       </div>
     </section>
 
     <section class="grid" data-animate style="--delay: 0.12s">
-      <NotificationsSection />
+      <NotificationsSection
+        :items="notifications"
+        :loading="loading"
+        :unread-count="unreadCount"
+      />
       <div class="card">
         <div class="card-header">
           <div>
@@ -44,5 +52,44 @@
 </template>
 
 <script setup>
+import { computed, onMounted, ref } from "vue";
 import NotificationsSection from "./NotificationsSection.vue";
+import { notificationAPI } from "../api";
+
+const notifications = ref([]);
+const loading = ref(false);
+
+const emitUpdated = () => {
+  window.dispatchEvent(new Event("notifications-updated"));
+};
+
+const fetchNotifications = async () => {
+  loading.value = true;
+  try {
+    const res = await notificationAPI.list({ limit: 20 });
+    notifications.value = res.data?.items || [];
+    emitUpdated();
+  } catch (error) {
+    console.error("Failed to fetch notifications", error);
+  } finally {
+    loading.value = false;
+  }
+};
+
+const unreadCount = computed(() => notifications.value.filter(item => !item.is_read).length);
+
+const handleMarkAllRead = async () => {
+  if (!notifications.value.length) return;
+  try {
+    await notificationAPI.markAllRead();
+    await fetchNotifications();
+    emitUpdated();
+  } catch (error) {
+    console.error("Failed to mark all as read", error);
+  }
+};
+
+onMounted(() => {
+  fetchNotifications();
+});
 </script>

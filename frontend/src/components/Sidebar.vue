@@ -20,7 +20,7 @@
     <div class="rail-meta">
       <div class="meta-block">
         <div class="meta-title">系统脉搏</div>
-        <div class="meta-value">稳定 · 2 条提醒</div>
+        <div class="meta-value">稳定 · {{ notificationCount || 0 }} 条提醒</div>
         <div class="meta-caption">{{ timestamp || "更新中" }}</div>
       </div>
       <div class="meta-block">
@@ -60,6 +60,10 @@ const props = defineProps({
   timestamp: {
     type: String,
     default: "",
+  },
+  notificationCount: {
+    type: Number,
+    default: 0,
   },
   activePage: {
     type: String,

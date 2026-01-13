@@ -118,7 +118,7 @@ select {
 .rail-meta {
   display: grid;
   gap: 20px;
-  margin-top: auto;
+  margin-top: 0;
 }
 
 .meta-block {
