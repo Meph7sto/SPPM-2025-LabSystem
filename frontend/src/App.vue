@@ -18,6 +18,7 @@
       :role-label="roleLabel"
       :borrower-role="borrowerRole"
       :timestamp="timestamp"
+      :notification-count="notificationCount"
       @exit="exitToLogin"
       :active-page="activePage"
       @navigate="navigatePage"
@@ -79,8 +80,8 @@
 </template>
 
 <script setup>
-import { onMounted, ref } from "vue";
-import { authAPI } from "./api.js";
+import { onBeforeUnmount, onMounted, ref } from "vue";
+import { authAPI, notificationAPI } from "./api.js";
 import LoginView from "./components/LoginView.vue";
 import RegisterView from "./components/RegisterView.vue";
 import Sidebar from "./components/Sidebar.vue";
@@ -108,6 +109,10 @@ const roleLabel = ref("");
 const timestamp = ref("");
 const defaultRole = ref("");
 const borrowerRole = ref("student");
+const notificationCount = ref(0);
+const handleNavigateToReservations = () => {
+  activePage.value = "my-reservations";
+};
 
 const roleMeta = {
   teacher: { label: "校内教师", type: "borrower" },
@@ -135,6 +140,7 @@ const enterDashboard = (payload) => {
   borrowerRole.value = meta.type === "borrower" ? role : "";
   activePage.value = "dashboard";
   activeView.value = "dashboard";
+  refreshNotificationCount();
 };
 
 const enterRegister = (role) => {
@@ -155,6 +161,19 @@ const exitToLogin = () => {
 
 const navigatePage = (page) => {
   activePage.value = page;
+  if (page === "notifications") {
+    refreshNotificationCount();
+  }
+};
+
+const refreshNotificationCount = async () => {
+  try {
+    const res = await notificationAPI.list({ is_read: false, limit: 1 });
+    notificationCount.value = res.data?.total ?? 0;
+  } catch (error) {
+    console.error("Failed to fetch notification count", error);
+    notificationCount.value = 0;
+  }
 };
 
 onMounted(() => {
@@ -165,8 +184,13 @@ onMounted(() => {
   timestamp.value = `更新于 ${formatter.format(new Date())}`;
 
   // 监听从 ProfileView 触发的导航事件
-  window.addEventListener('navigate-to-reservations', () => {
-    activePage.value = 'my-reservations';
-  });
+  window.addEventListener("navigate-to-reservations", handleNavigateToReservations);
+
+  window.addEventListener("notifications-updated", refreshNotificationCount);
+});
+
+onBeforeUnmount(() => {
+  window.removeEventListener("navigate-to-reservations", handleNavigateToReservations);
+  window.removeEventListener("notifications-updated", refreshNotificationCount);
 });
 </script>

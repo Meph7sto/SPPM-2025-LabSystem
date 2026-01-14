@@ -15,6 +15,7 @@ from ...models.finance import FinancePayment
 from ...models.reservation import Reservation, PaymentStatus, ApprovalStep, ReservationStatus
 from ...models.user import UserRole
 from ..deps import require_roles
+from ...services.notifications import notify_payment_confirmed
 
 
 router = APIRouter(prefix="/finance")
@@ -47,6 +48,7 @@ def _normalize_status(value: str) -> str:
 
 
 def _apply_finance_status_to_reservation(
+    db: Session,
     reservation: Reservation,
     finance_payment: FinancePayment,
     status: str,
@@ -64,6 +66,12 @@ def _apply_finance_status_to_reservation(
         if reservation.current_step == ApprovalStep.PAYMENT:
             reservation.status = ReservationStatus.APPROVED
             reservation.current_step = ApprovalStep.FINAL
+        notify_payment_confirmed(
+            db,
+            to_user_id=reservation.user_id,
+            reservation_id=reservation.id,
+            order_no=finance_payment.order_no,
+        )
 
 
 @router.get("/payments/{order_no}", response_model=dict)
@@ -108,7 +116,7 @@ def mock_update_finance_payment(
     if not reservation:
         raise NotFoundError(f"关联预约不存在 (id={fp.reservation_id})")
 
-    _apply_finance_status_to_reservation(reservation, fp, status, paid_time)
+    _apply_finance_status_to_reservation(db, reservation, fp, status, paid_time)
     db.commit()
     db.refresh(fp)
 
@@ -144,6 +152,6 @@ def finance_callback(
     if not reservation:
         raise NotFoundError(f"关联预约不存在 (id={fp.reservation_id})")
 
-    _apply_finance_status_to_reservation(reservation, fp, status, paid_time)
+    _apply_finance_status_to_reservation(db, reservation, fp, status, paid_time)
     db.commit()
     return ok({"order_no": payload.order_no, "status": status})

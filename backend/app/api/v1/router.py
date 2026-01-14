@@ -6,6 +6,7 @@ from .users import router as users_router
 
 from .devices import router as devices_router
 from .finance import router as finance_router
+from .notifications import router as notifications_router
 from .reservations import router as reservations_router
 from .staff import router as staff_router
 from .reports import router as reports_router
@@ -18,6 +19,7 @@ router.include_router(auth_router, tags=["auth"])
 router.include_router(users_router, tags=["users"])
 router.include_router(devices_router, tags=["devices"])
 router.include_router(finance_router, tags=["finance"])
+router.include_router(notifications_router, tags=["notifications"])
 router.include_router(reservations_router, tags=["reservations"])
 router.include_router(staff_router, tags=["staff"])
 router.include_router(system_config_router, tags=["system-config"])
