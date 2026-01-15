@@ -53,7 +53,10 @@ def create_teacher(
         borrower_type=BorrowerType.TEACHER,
         name=payload.name,
         contact=payload.contact,
+        gender=payload.gender,
         college=payload.college,
+        professional_title=payload.professional_title,
+        research_direction=payload.research_direction,
         teacher_no=payload.teacher_no,
         is_active=True,
     )
@@ -184,8 +187,10 @@ def create_student(
         borrower_type=BorrowerType.STUDENT,
         name=payload.name,
         contact=payload.contact,
+        gender=payload.gender,
         college=payload.college,
         student_no=payload.student_no,
+        major=payload.major,
         advisor_no=payload.advisor_no,
         is_active=True,
     )
@@ -316,6 +321,7 @@ def create_external(
         borrower_type=BorrowerType.EXTERNAL,
         name=payload.name,
         contact=payload.contact,
+        gender=payload.gender,
         org_name=payload.org_name,
         is_active=True,
     )

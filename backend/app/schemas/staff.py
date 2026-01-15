@@ -12,6 +12,7 @@ class StaffBase(BaseModel):
     """
     name: str = Field(..., min_length=1, max_length=64, description="真实姓名")
     contact: str = Field(..., min_length=1, max_length=64, description="联系方式")
+    gender: str = Field(..., min_length=1, max_length=16, description="性别")
 
 
 # -------------------------------------------------------------------------
@@ -24,6 +25,8 @@ class TeacherCreate(StaffBase):
     """
     teacher_no: str = Field(..., max_length=32, description="教师工号（唯一）")
     college: str = Field(..., max_length=128, description="所属学院")
+    professional_title: str = Field(..., max_length=64, description="职称")
+    research_direction: str = Field(..., max_length=128, description="专业方向")
     password: str = Field(default="12345678", min_length=8, description="初始密码，默认 12345678")
 
 
@@ -33,7 +36,10 @@ class TeacherUpdate(BaseModel):
     """
     name: str | None = Field(None, min_length=1, max_length=64)
     contact: str | None = Field(None, min_length=1, max_length=64)
+    gender: str | None = Field(None, max_length=16)
     college: str | None = Field(None, max_length=128)
+    professional_title: str | None = Field(None, max_length=64)
+    research_direction: str | None = Field(None, max_length=128)
     is_active: bool | None = Field(None, description="是否启用账号")
 
 
@@ -48,7 +54,10 @@ class TeacherOut(BaseModel):
     teacher_no: str | None
     name: str
     contact: str
+    gender: str | None
     college: str | None
+    professional_title: str | None
+    research_direction: str | None
     is_active: bool
     created_at: datetime
 
@@ -64,6 +73,7 @@ class StudentCreate(StaffBase):
     student_no: str = Field(..., max_length=32, description="学号（唯一）")
     advisor_no: str = Field(..., max_length=32, description="导师工号（必须存在）")
     college: str = Field(..., max_length=128, description="所属学院")
+    major: str = Field(..., max_length=128, description="专业")
     password: str = Field(default="12345678", min_length=8, description="初始密码，默认 12345678")
 
 
@@ -73,7 +83,9 @@ class StudentUpdate(BaseModel):
     """
     name: str | None = Field(None, min_length=1, max_length=64)
     contact: str | None = Field(None, min_length=1, max_length=64)
+    gender: str | None = Field(None, max_length=16)
     college: str | None = Field(None, max_length=128)
+    major: str | None = Field(None, max_length=128)
     advisor_no: str | None = Field(None, max_length=32, description="导师工号")
     is_active: bool | None = Field(None, description="是否启用账号")
 
@@ -90,7 +102,9 @@ class StudentOut(BaseModel):
     advisor_no: str | None
     name: str
     contact: str
+    gender: str | None
     college: str | None
+    major: str | None
     is_active: bool
     created_at: datetime
 
@@ -113,6 +127,7 @@ class ExternalUpdate(BaseModel):
     """
     name: str | None = Field(None, min_length=1, max_length=64)
     contact: str | None = Field(None, min_length=1, max_length=64)
+    gender: str | None = Field(None, max_length=16)
     org_name: str | None = Field(None, max_length=128)
     is_active: bool | None = Field(None, description="是否启用账号")
 
@@ -127,6 +142,7 @@ class ExternalOut(BaseModel):
     account: str
     name: str
     contact: str
+    gender: str | None
     org_name: str | None
     is_active: bool
     created_at: datetime

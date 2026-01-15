@@ -11,6 +11,10 @@ class UpdateProfileRequest(BaseModel):
 
     name: str | None = Field(None, min_length=1, max_length=64, description="真实姓名")
     contact: str | None = Field(None, min_length=1, max_length=64, description="联系方式")
+    gender: str | None = Field(None, max_length=16, description="性别")
     college: str | None = Field(None, max_length=128, description="学院/单位（仅教师/学生可填）")
+    professional_title: str | None = Field(None, max_length=64, description="职称（仅教师可填）")
+    research_direction: str | None = Field(None, max_length=128, description="专业方向（仅教师可填）")
+    major: str | None = Field(None, max_length=128, description="专业（仅学生可填）")
     org_name: str | None = Field(None, max_length=128, description="单位名称（仅校外人员可填）")
     # 注意：工号/学号等敏感字段不允许用户自行修改，需要管理员修改

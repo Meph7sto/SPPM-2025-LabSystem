@@ -31,12 +31,33 @@
             <input type="text" v-model="profile.name" />
           </label>
           <label>
+            性别
+            <select v-model="profile.gender">
+              <option value="">未填写</option>
+              <option value="男">男</option>
+              <option value="女">女</option>
+              <option value="其他">其他</option>
+            </select>
+          </label>
+          <label>
             学号 / 工号
             <input type="text" :value="getStaffNo()" disabled />
           </label>
           <label v-if="profile.borrower_type !== 'external'">
             学院 / 单位
             <input type="text" v-model="profile.college" />
+          </label>
+          <label v-if="profile.borrower_type === 'teacher'">
+            职称
+            <input type="text" v-model="profile.professional_title" />
+          </label>
+          <label v-if="profile.borrower_type === 'teacher'">
+            专业方向
+            <input type="text" v-model="profile.research_direction" />
+          </label>
+          <label v-if="profile.borrower_type === 'student'">
+            专业
+            <input type="text" v-model="profile.major" />
           </label>
           <label v-if="profile.borrower_type === 'student'">
             指导教师工号
@@ -117,9 +138,13 @@ const profile = reactive({
   borrower_type: null,
   name: "",
   contact: "",
+  gender: null,
   college: null,
+  professional_title: null,
+  research_direction: null,
   teacher_no: null,
   student_no: null,
+  major: null,
   advisor_no: null,
   org_name: null,
   is_active: true,
@@ -180,7 +205,11 @@ const handleSave = async () => {
     const updateData = {
       name: profile.name,
       contact: profile.contact,
+      gender: profile.gender,
       college: profile.college,
+      professional_title: profile.professional_title,
+      research_direction: profile.research_direction,
+      major: profile.major,
       org_name: profile.org_name,
     };
 

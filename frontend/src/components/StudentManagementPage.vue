@@ -34,7 +34,7 @@
           <input
             v-model="keyword"
             type="text"
-            placeholder="搜索学号 / 姓名 / 导师工号"
+            placeholder="搜索学号 / 姓名 / 专业 / 导师工号"
           />
           <select v-model="statusFilter">
             <option value="all">全部状态</option>
@@ -51,10 +51,13 @@
               <h3>{{ student.name }}</h3>
               <p>
                 {{ student.studentNo }} ·
-                {{ student.advisorNo || "导师未绑定" }} ·
+                {{ student.major || "专业待补充" }} ·
                 {{ student.college || "学院待补充" }}
               </p>
               <div class="chip-row">
+                <span class="chip chip-neutral">
+                  {{ student.gender || "性别未填" }}
+                </span>
                 <span class="chip chip-neutral">
                   {{ student.advisorNo ? `导师 ${student.advisorNo}` : "导师未绑定" }}
                 </span>
@@ -90,6 +93,10 @@
               <strong>{{ activeStudent.name }}</strong>
             </div>
             <div class="summary-row">
+              <span>性别</span>
+              <strong>{{ activeStudent.gender || "未填写" }}</strong>
+            </div>
+            <div class="summary-row">
               <span>学号</span>
               <strong>{{ activeStudent.studentNo }}</strong>
             </div>
@@ -100,6 +107,10 @@
             <div class="summary-row">
               <span>学院</span>
               <strong>{{ activeStudent.college || "未填写" }}</strong>
+            </div>
+            <div class="summary-row">
+              <span>专业</span>
+              <strong>{{ activeStudent.major || "未填写" }}</strong>
             </div>
             <div class="summary-row">
               <span>联系方式</span>
@@ -132,8 +143,21 @@
             <input v-model="form.name" type="text" />
           </label>
           <label>
+            性别
+            <select v-model="form.gender">
+              <option value="">请选择</option>
+              <option value="男">男</option>
+              <option value="女">女</option>
+              <option value="其他">其他</option>
+            </select>
+          </label>
+          <label>
             学号
             <input v-model="form.studentNo" type="text" />
+          </label>
+          <label>
+            专业
+            <input v-model="form.major" type="text" />
           </label>
           <label>
             导师工号
@@ -221,7 +245,9 @@ const students = ref([]);
 
 const form = reactive({
   name: "",
+  gender: "",
   studentNo: "",
+  major: "",
   advisorNo: "",
   contact: "",
   college: "",
@@ -235,6 +261,8 @@ const filteredStudents = computed(() => {
       student.name.toLowerCase().includes(keywordValue) ||
       student.studentNo.toLowerCase().includes(keywordValue) ||
       (student.advisorNo || "").toLowerCase().includes(keywordValue) ||
+      (student.gender || "").toLowerCase().includes(keywordValue) ||
+      (student.major || "").toLowerCase().includes(keywordValue) ||
       (student.college || "").toLowerCase().includes(keywordValue) ||
       (student.contact || "").toLowerCase().includes(keywordValue);
     const matchesStatus =
@@ -260,7 +288,9 @@ const formatDate = (value) => {
 const mapStudent = (item) => ({
   id: item.id,
   name: item.name,
+  gender: item.gender || "",
   studentNo: item.student_no || "",
+  major: item.major || "",
   advisorNo: item.advisor_no || "",
   contact: item.contact || "",
   college: item.college || "",
@@ -296,7 +326,9 @@ const addStudent = async () => {
   formError.value = "";
   const payload = {
     name: form.name.trim(),
+    gender: form.gender.trim(),
     student_no: form.studentNo.trim(),
+    major: form.major.trim(),
     advisor_no: form.advisorNo.trim(),
     contact: form.contact.trim(),
     college: form.college.trim(),
@@ -304,12 +336,14 @@ const addStudent = async () => {
 
   if (
     !payload.name ||
+    !payload.gender ||
     !payload.student_no ||
+    !payload.major ||
     !payload.advisor_no ||
     !payload.contact ||
     !payload.college
   ) {
-    formError.value = "请填写学生姓名、学号、导师工号、联系方式和学院。";
+    formError.value = "请填写学生姓名、性别、学号、专业、导师工号、联系方式和学院。";
     return;
   }
 
@@ -319,7 +353,9 @@ const addStudent = async () => {
       students.value.unshift(mapStudent(res.data));
     }
     form.name = "";
+    form.gender = "";
     form.studentNo = "";
+    form.major = "";
     form.advisorNo = "";
     form.contact = "";
     form.college = "";
@@ -352,7 +388,7 @@ const selectStudent = (student) => {
 
 const downloadTemplate = () => {
   const content =
-    "studentNo,name,advisorNo,contact,college\n20241234,张欣怡,T2023001,18800001111,材料学院\n";
+    "studentNo,name,gender,major,advisorNo,contact,college\n20241234,张欣怡,女,材料科学,T2023001,18800001111,材料学院\n";
   const blob = new Blob([content], { type: "text/csv;charset=utf-8" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
@@ -408,7 +444,9 @@ const importStudents = async () => {
     for (const row of rows) {
       const payload = {
         name: (row.name || "").trim(),
+        gender: (row.gender || "").trim(),
         student_no: (row.studentNo || "").trim(),
+        major: (row.major || "").trim(),
         advisor_no: (row.advisorNo || "").trim(),
         contact: (row.contact || "").trim(),
         college: (row.college || "").trim(),
@@ -416,7 +454,9 @@ const importStudents = async () => {
 
       if (
         !payload.name ||
+        !payload.gender ||
         !payload.student_no ||
+        !payload.major ||
         !payload.advisor_no ||
         !payload.contact ||
         !payload.college

@@ -72,14 +72,26 @@ class User(Base):
     # 身份特定字段
     # -------------------------------------------------------------------------
 
+    # Gender (teacher/student/external)
+    gender: Mapped[str | None] = mapped_column(String(16), nullable=True)
+
     # 学院/部门 (教师/学生必填)
     college: Mapped[str | None] = mapped_column(String(128), nullable=True)
+
+    # Professional title (teacher)
+    professional_title: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+    # Research direction (teacher)
+    research_direction: Mapped[str | None] = mapped_column(String(128), nullable=True)
 
     # 教师工号 (教师必填，唯一)
     teacher_no: Mapped[str | None] = mapped_column(String(32), unique=True, nullable=True)
 
     # 学号 (学生必填，唯一)
     student_no: Mapped[str | None] = mapped_column(String(32), unique=True, nullable=True)
+
+    # Major (student)
+    major: Mapped[str | None] = mapped_column(String(128), nullable=True)
 
     # 导师工号 (学生必填，关联导师的 teacher_no)
     advisor_no: Mapped[str | None] = mapped_column(String(32), nullable=True)

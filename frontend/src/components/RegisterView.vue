@@ -59,6 +59,15 @@
               placeholder="手机号 / 邮箱"
             />
           </div>
+          <div class="login-field">
+            <label for="register-gender">性别</label>
+            <select id="register-gender" v-model="form.gender">
+              <option value="">请选择</option>
+              <option value="男">男</option>
+              <option value="女">女</option>
+              <option value="其他">其他</option>
+            </select>
+          </div>
           <div class="login-field" v-if="form.role !== 'external'">
             <label for="register-college">学院 / 单位</label>
             <input
@@ -77,6 +86,24 @@
               placeholder="工号"
             />
           </div>
+          <div class="login-field" v-if="form.role === 'teacher'">
+            <label for="register-title">职称</label>
+            <input
+              id="register-title"
+              v-model="form.professionalTitle"
+              type="text"
+              placeholder="副教授 / 讲师等"
+            />
+          </div>
+          <div class="login-field" v-if="form.role === 'teacher'">
+            <label for="register-direction">专业方向</label>
+            <input
+              id="register-direction"
+              v-model="form.researchDirection"
+              type="text"
+              placeholder="研究方向"
+            />
+          </div>
           <div class="login-field" v-if="form.role === 'student'">
             <label for="register-student-id">学生学号</label>
             <input
@@ -84,6 +111,15 @@
               v-model="form.studentNo"
               type="text"
               placeholder="学号"
+            />
+          </div>
+          <div class="login-field" v-if="form.role === 'student'">
+            <label for="register-major">专业</label>
+            <input
+              id="register-major"
+              v-model="form.major"
+              type="text"
+              placeholder="专业名称"
             />
           </div>
           <div class="login-field" v-if="form.role === 'student'">
@@ -150,9 +186,13 @@ const form = reactive({
   role: props.defaultRole || "student",
   name: "",
   contact: "",
+  gender: "",
   college: "",
   teacherNo: "",
+  professionalTitle: "",
+  researchDirection: "",
   studentNo: "",
+  major: "",
   advisorNo: "",
   orgName: "",
   password: "",
@@ -171,15 +211,23 @@ const handleRegister = async () => {
   message.value = "";
   const name = form.name.trim();
   const contact = form.contact.trim();
+  const gender = form.gender.trim();
   const password = form.password;
   const college = form.college.trim();
   const teacherNo = form.teacherNo.trim();
+  const professionalTitle = form.professionalTitle.trim();
+  const researchDirection = form.researchDirection.trim();
   const studentNo = form.studentNo.trim();
+  const major = form.major.trim();
   const advisorNo = form.advisorNo.trim();
   const orgName = form.orgName.trim();
 
   if (!name || !contact || !password) {
     showMessage("请填写姓名、联系方式与密码", "error");
+    return;
+  }
+  if (!gender) {
+    showMessage("请选择性别", "error");
     return;
   }
   if (password.length < 8) {
@@ -190,12 +238,12 @@ const handleRegister = async () => {
     showMessage("请填写学院/单位", "error");
     return;
   }
-  if (form.role === "teacher" && !teacherNo) {
-    showMessage("请填写教师编号", "error");
+  if (form.role === "teacher" && (!teacherNo || !professionalTitle || !researchDirection)) {
+    showMessage("请填写教师编号、职称与专业方向", "error");
     return;
   }
-  if (form.role === "student" && (!studentNo || !advisorNo)) {
-    showMessage("请填写学生学号与导师工号", "error");
+  if (form.role === "student" && (!studentNo || !advisorNo || !major)) {
+    showMessage("请填写学生学号、导师工号与专业", "error");
     return;
   }
   if (form.role === "external" && !orgName) {
@@ -209,9 +257,13 @@ const handleRegister = async () => {
       role: form.role,
       name,
       contact,
+      gender,
       college: form.role === "external" ? null : college,
+      professional_title: form.role === "teacher" ? professionalTitle : null,
+      research_direction: form.role === "teacher" ? researchDirection : null,
       teacher_no: form.role === "teacher" ? teacherNo : null,
       student_no: form.role === "student" ? studentNo : null,
+      major: form.role === "student" ? major : null,
       advisor_no: form.role === "student" ? advisorNo : null,
       org_name: form.role === "external" ? orgName : null,
       password,

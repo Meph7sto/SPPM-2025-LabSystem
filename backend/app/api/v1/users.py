@@ -46,8 +46,16 @@ def update_my_profile(
         current_user.name = payload.name
     if payload.contact is not None:
         current_user.contact = payload.contact
+    if payload.gender is not None:
+        current_user.gender = payload.gender
     if payload.college is not None:
         current_user.college = payload.college
+    if payload.professional_title is not None:
+        current_user.professional_title = payload.professional_title
+    if payload.research_direction is not None:
+        current_user.research_direction = payload.research_direction
+    if payload.major is not None:
+        current_user.major = payload.major
     if payload.org_name is not None:
         current_user.org_name = payload.org_name
 
