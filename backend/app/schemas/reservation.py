@@ -156,3 +156,23 @@ class ReservationListItem(BaseModel):
 
     # 计算字段
     next_action: NextAction | None = Field(None, description="下一步流转提示")
+
+
+class BorrowRequest(BaseModel):
+    """
+    借出登记请求模型（T34）。
+    管理员在设备借出时填写交接信息。
+    """
+    handover_note: str | None = Field(None, max_length=500, description="交接备注（设备状态、配件清单等）")
+
+
+class ReturnRequest(BaseModel):
+    """
+    归还登记请求模型（T35）。
+    管理员在设备归还时填写归还信息及设备状态。
+    """
+    return_note: str | None = Field(None, max_length=500, description="归还备注（设备使用情况等）")
+    device_condition: str = Field(
+        ..., 
+        description="设备状态：normal（正常）, damaged（损坏）, needs_maintenance（待检修）"
+    )
