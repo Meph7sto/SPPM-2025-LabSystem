@@ -48,6 +48,25 @@
       </div>
     </section>
 
+    <section class="grid" data-animate style="--delay: 0.1s">
+      <div class="card wide">
+        <div class="card-header">
+          <div>
+            <p class="card-kicker">NFR-6</p>
+            <h2>局域网访问限制</h2>
+          </div>
+          <span class="chip chip-neutral">模拟</span>
+        </div>
+        <form class="form">
+          <label>
+            来源 IP / 反代标识
+            <input type="text" placeholder="例如：10.1.20.33 或 X-Forwarded-For" />
+          </label>
+          <p class="form-hint">负责人端用于模拟 IP 白名单校验位置，真实限制由网关或配置中心接管。</p>
+        </form>
+      </div>
+    </section>
+
     <section class="grid" data-animate style="--delay: 0.12s">
       <ReportsSection />
       <div class="card">

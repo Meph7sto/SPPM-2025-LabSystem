@@ -86,6 +86,7 @@ const borrowerNav = [
 const adminNav = [
   { key: "dashboard", label: "总览" },
   { key: "approvals", label: "审批" },
+  { key: "borrow-return", label: "借还管理" },
   { key: "availability", label: "可用性" },
   { key: "ledger", label: "台账" },
   { key: "payments", label: "缴费核验" },

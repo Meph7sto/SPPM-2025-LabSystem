@@ -159,9 +159,13 @@
             专业
             <input v-model="form.major" type="text" />
           </label>
-          <label>
+          <label v-if="isAdmin">
             导师工号
-            <input v-model="form.advisorNo" type="text" />
+            <input v-model="form.advisorNo" type="text" placeholder="请输入导师工号" />
+          </label>
+          <label v-else>
+            导师工号
+            <input :value="currentUser?.teacher_no" type="text" disabled />
           </label>
           <label>
             联系方式
@@ -227,7 +231,10 @@
 
 <script setup>
 import { computed, reactive, ref, onMounted } from "vue";
-import { staffAPI } from "../api";
+import { staffAPI, getCachedUserInfo } from "../api";
+
+const currentUser = getCachedUserInfo();
+const isAdmin = computed(() => currentUser?.role === "admin" || currentUser?.role === "head");
 
 const keyword = ref("");
 const statusFilter = ref("all");
@@ -320,6 +327,9 @@ const fetchStudents = async () => {
 
 onMounted(() => {
   fetchStudents();
+  if (!isAdmin.value && currentUser?.teacher_no) {
+    form.advisorNo = currentUser.teacher_no;
+  }
 });
 
 const addStudent = async () => {
@@ -409,85 +419,29 @@ const handleFile = (event) => {
   importMessage.value = "";
 };
 
-const parseCsvRows = (text) => {
-  const lines = text
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean);
-  if (lines.length < 2) return [];
-  const headers = lines[0].split(",").map((header) => header.trim());
-  return lines.slice(1).map((line) => {
-    const values = line.split(",").map((value) => value.trim());
-    const row = {};
-    headers.forEach((header, index) => {
-      row[header] = values[index] ?? "";
-    });
-    return row;
-  });
-};
 
 const importStudents = async () => {
   if (!selectedFile.value) return;
   importMessage.value = "正在导入...";
   try {
-    const text = await selectedFile.value.text();
-    const rows = parseCsvRows(text);
-    if (!rows.length) {
-      importMessage.value = "未读取到有效数据，请检查模板。";
-      return;
+    const res = await staffAPI.importStudents(selectedFile.value);
+    const data = res.data;
+    
+    if (data.success > 0) {
+      await fetchStudents(); // 重新加载列表
     }
-
-    let success = 0;
-    let failed = 0;
-    const created = [];
-
-    for (const row of rows) {
-      const payload = {
-        name: (row.name || "").trim(),
-        gender: (row.gender || "").trim(),
-        student_no: (row.studentNo || "").trim(),
-        major: (row.major || "").trim(),
-        advisor_no: (row.advisorNo || "").trim(),
-        contact: (row.contact || "").trim(),
-        college: (row.college || "").trim(),
-      };
-
-      if (
-        !payload.name ||
-        !payload.gender ||
-        !payload.student_no ||
-        !payload.major ||
-        !payload.advisor_no ||
-        !payload.contact ||
-        !payload.college
-      ) {
-        failed += 1;
-        continue;
-      }
-
-      try {
-        const res = await staffAPI.createStudent(payload);
-        if (res.data) {
-          created.push(mapStudent(res.data));
-        }
-        success += 1;
-      } catch (error) {
-        failed += 1;
-      }
+    
+    importMessage.value = `导入完成：成功 ${data.success} 条，失败 ${data.failed} 条。`;
+    if (data.errors && data.errors.length > 0) {
+      console.warn("Import errors:", data.errors);
     }
-
-    if (created.length) {
-      students.value = [...created, ...students.value];
-    }
-
-    importMessage.value = `导入完成：新增 ${success} 条，失败 ${failed} 条。`;
   } catch (error) {
     console.error("Failed to import students:", error);
-    importMessage.value = "导入失败，请检查文件格式。";
+    importMessage.value = error.message || "导入失败，请检查文件格式。";
   } finally {
     setTimeout(() => {
       importMessage.value = "";
-    }, 2400);
+    }, 5000);
     selectedFile.value = null;
     fileName.value = "";
     if (fileInput.value) {

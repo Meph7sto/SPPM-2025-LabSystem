@@ -12,7 +12,12 @@ from ...db.session import get_db
 from ...models.reservation import Reservation, ReservationStatus, PaymentStatus
 from ...models.user import User, UserRole
 from ...services.notifications import notify_report_generated
+from ...services.report_service import generate_and_save_report
+from ...models.report import GeneratedReport, ReportType
 from ..deps import require_roles
+from fastapi import Path, HTTPException
+from fastapi.responses import FileResponse
+import os
 
 router = APIRouter(prefix="/reports", tags=["reports"])
 
@@ -345,3 +350,62 @@ def export_monthly_report_excel(
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers=headers
     )
+
+@router.get("/generated", response_model=list[dict])
+def list_generated_reports(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(UserRole.ADMIN, UserRole.HEAD)),
+):
+    """
+    获取已自动/手动生成的报表列表
+    """
+    reports = db.query(GeneratedReport).order_by(GeneratedReport.created_at.desc()).all()
+    return [
+        {
+            "id": r.id,
+            "report_type": r.report_type,
+            "period_start": r.period_start,
+            "period_end": r.period_end,
+            "filename": r.filename,
+            "created_at": r.created_at,
+        }
+        for r in reports
+    ]
+
+@router.get("/generated/{report_id}/download")
+def download_generated_report(
+    report_id: int = Path(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(UserRole.ADMIN, UserRole.HEAD)),
+):
+    """
+    下载指定已生成的报表文件
+    """
+    report = db.query(GeneratedReport).filter(GeneratedReport.id == report_id).first()
+    if not report:
+        raise HTTPException(status_code=404, detail="Report not found")
+    
+    if not os.path.exists(report.file_path):
+        raise HTTPException(status_code=404, detail="Report file not found on disk")
+
+    return FileResponse(
+        report.file_path,
+        filename=report.filename,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+
+@router.post("/trigger", status_code=201)
+def trigger_report_generation(
+    report_type: ReportType,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(UserRole.ADMIN, UserRole.HEAD)),
+):
+    """
+    手动补生成报表
+    """
+    report = generate_and_save_report(db, report_type, user_id=current_user.id)
+    return {
+        "message": "Report generated successfully",
+        "report_id": report.id,
+        "filename": report.filename
+    }

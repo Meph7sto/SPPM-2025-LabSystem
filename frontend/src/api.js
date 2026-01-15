@@ -251,6 +251,8 @@ export const reservationAPI = {
         }
         return await res.blob();
     },
+
+    /**
      * 借出登记（T34）
      */
     async borrow(id, data) {
@@ -368,6 +370,27 @@ export const staffAPI = {
             method: "DELETE",
         });
     },
+
+    /**
+     * 批量导入学生（Excel/CSV）
+     */
+    async importStudents(file) {
+        const formData = new FormData();
+        formData.append("file", file);
+
+        const token = getAuthToken();
+        const response = await fetch(`${API_BASE_URL}/staff/students/import`, {
+            method: "POST",
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+            body: formData,
+        });
+
+        const data = await response.json();
+        if (!response.ok) {
+            throw new Error(data.message || "导入失败");
+        }
+        return data;
+    },
 };
 // 系统配置相关 API
 export const systemConfigAPI = {
@@ -387,6 +410,58 @@ export const systemConfigAPI = {
             body: configData,
         });
     },
+};
+
+// 报表相关 API
+export const reportAPI = {
+    /**
+     * 报表汇总统计
+     */
+    async summary() {
+        return await request("/reports/summary");
+    },
+
+    /**
+     * 导出 Excel (即时)
+     */
+    async exportExcel(type = "weekly") {
+        const token = getAuthToken();
+        const res = await fetch(`${API_BASE_URL}/reports/${type}/excel`, {
+            method: "GET",
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        if (!res.ok) throw new Error("导出失败");
+        return await res.blob();
+    },
+
+    /**
+     * 获取已生成的报表列表
+     */
+    async listGenerated() {
+        return await request("/reports/generated");
+    },
+
+    /**
+     * 下载已生成的报表
+     */
+    async downloadGenerated(reportId) {
+        const token = getAuthToken();
+        const res = await fetch(`${API_BASE_URL}/reports/generated/${reportId}/download`, {
+            method: "GET",
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        if (!res.ok) throw new Error("下载失败");
+        return await res.blob();
+    },
+
+    /**
+     * 手动触发补生成报表
+     */
+    async trigger(type) {
+        return await request(`/reports/trigger?report_type=${type}`, {
+            method: "POST",
+        });
+    }
 };
 /**
  * 从 localStorage 获取用户信息

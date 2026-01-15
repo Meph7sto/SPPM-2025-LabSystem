@@ -54,6 +54,9 @@
     <ApprovalsPage
       v-else-if="mode === 'admin' && activePage === 'approvals'"
     />
+    <BorrowReturnPage
+      v-else-if="mode === 'admin' && activePage === 'borrow-return'"
+    />
     <AvailabilityPage
       v-else-if="mode === 'admin' && activePage === 'availability'"
     />
@@ -92,6 +95,7 @@ import ReservationPage from "./components/ReservationPage.vue";
 import MyReservationsPage from "./components/MyReservationsPage.vue";
 import ProfileView from "./components/ProfileView.vue";
 import ApprovalsPage from "./components/ApprovalsPage.vue";
+import BorrowReturnPage from "./components/BorrowReturnPage.vue";
 import PaymentsPage from "./components/PaymentsPage.vue";
 import NotificationsPage from "./components/NotificationsPage.vue";
 import ReportsPage from "./components/ReportsPage.vue";

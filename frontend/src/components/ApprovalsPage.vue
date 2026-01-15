@@ -296,7 +296,7 @@ const toApprovalCard = (item) => {
     detail: `${item.device?.model || "未知设备"} · ${formatDateRange(
       item.start_time,
       item.end_time
-    )}`,
+    )}${borrowerType === 'student' ? ` · 导师：${item.user?.advisor_no || '未指定'}` : ''}`,
     step: stepLabel,
     priority,
     priorityLevel,
