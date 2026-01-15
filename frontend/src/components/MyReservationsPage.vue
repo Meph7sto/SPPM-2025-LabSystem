@@ -10,7 +10,58 @@
       </div>
       <div class="page-actions">
         <button type="button" class="ghost">导出清单</button>
+        <button type="button" class="ghost" @click="togglePrintPanel">
+          打印预约单
+        </button>
         <button type="button" class="primary">新建预约</button>
+      </div>
+    </section>
+
+    <section
+      v-if="showPrintPanel"
+      class="grid"
+      data-animate
+      style="--delay: 0.12s"
+    >
+      <div class="card wide">
+        <div class="card-header">
+          <div>
+            <p class="card-kicker">打印</p>
+            <h2>导出预约单 PDF</h2>
+          </div>
+          <span class="chip chip-neutral">{{ reservations.length }} 条</span>
+        </div>
+        <div class="form">
+          <label>
+            选择预约
+            <select v-model="printReservationId">
+              <option value="">请选择预约</option>
+              <option
+                v-for="item in reservations"
+                :key="item.dbId"
+                :value="item.dbId"
+              >
+                {{ item.id }} · {{ item.device }} · {{ item.slot }}
+              </option>
+            </select>
+          </label>
+          <div class="reservation-actions">
+            <button
+              type="button"
+              class="primary"
+              :disabled="!printReservationId || downloadingPdf"
+              @click="downloadPdf"
+            >
+              {{ downloadingPdf ? "生成中..." : "下载 PDF" }}
+            </button>
+            <button type="button" class="ghost" @click="togglePrintPanel">
+              收起
+            </button>
+          </div>
+          <p class="form-hint">
+            生成后可在浏览器直接下载/打印，内容含审批与支付信息。
+          </p>
+        </div>
       </div>
     </section>
 
@@ -221,7 +272,7 @@
 
 <script setup>
 import { computed, reactive, ref, onMounted, watch } from "vue";
-import { reservationAPI, getCachedUserInfo } from "../api";
+import { reservationAPI } from "../api";
 
 const props = defineProps({
   borrowerRole: {
@@ -245,6 +296,9 @@ const editForm = reactive({
 const editSaved = ref(false);
 
 const isExternal = computed(() => props.borrowerRole === "external");
+const showPrintPanel = ref(false);
+const printReservationId = ref("");
+const downloadingPdf = ref(false);
 
 const fetchReservations = async () => {
   try {
@@ -277,6 +331,12 @@ const fetchReservations = async () => {
             deadline: formatDate(item.start_time), // 借用开始前
             dbId: item.id
           }));
+      }
+
+      // 重置打印选项
+      const ids = reservations.value.map(r => r.dbId);
+      if (!ids.includes(printReservationId.value)) {
+        printReservationId.value = ids[0] || "";
       }
     }
   } catch (error) {
@@ -319,6 +379,8 @@ watch(
     paymentNotice.value = "";
     editing.value = null;
     editSaved.value = false;
+    printReservationId.value = "";
+    showPrintPanel.value = false;
   },
   { immediate: true }
 );
@@ -438,5 +500,31 @@ const openPayment = (item) => {
     return;
   }
   selectOrder(item.orderId);
+};
+
+const togglePrintPanel = () => {
+  showPrintPanel.value = !showPrintPanel.value;
+};
+
+const downloadPdf = async () => {
+  if (!printReservationId.value) {
+    alert("请选择要打印的预约");
+    return;
+  }
+  downloadingPdf.value = true;
+  try {
+    const blob = await reservationAPI.exportPdf(printReservationId.value);
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `reservation-${printReservationId.value}.pdf`;
+    a.click();
+    URL.revokeObjectURL(url);
+  } catch (error) {
+    console.error("Export PDF failed:", error);
+    alert("导出失败：" + error.message);
+  } finally {
+    downloadingPdf.value = false;
+  }
 };
 </script>

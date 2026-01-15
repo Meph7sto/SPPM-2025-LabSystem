@@ -237,6 +237,20 @@ export const reservationAPI = {
     },
 
     /**
+     * 导出预约单 PDF
+     */
+    async exportPdf(id) {
+        const token = getAuthToken();
+        const res = await fetch(`${API_BASE_URL}/reservations/${id}/export/pdf`, {
+            method: "GET",
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+
+        if (!res.ok) {
+            throw new Error("导出失败");
+        }
+        return await res.blob();
+    },
      * 借出登记（T34）
      */
     async borrow(id, data) {

@@ -2,8 +2,10 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 from typing import List
+import io
 
 from fastapi import APIRouter, Depends, Query
+from fastapi.responses import StreamingResponse
 from sqlalchemy import select, func, text
 from sqlalchemy.orm import Session, joinedload
 
@@ -23,6 +25,7 @@ from ...services.notifications import (
     notify_refund_processed,
     notify_reservation_cancelled,
 )
+from ...services.reservation_pdf import generate_reservation_pdf
 from ..deps import get_current_user, require_roles
 
 router = APIRouter(prefix="/reservations")
@@ -532,6 +535,50 @@ def get_reservation(
     response.update(_priority_info(reservation.user))
     return ok(response)
 
+
+@router.get("/{reservation_id}/export/pdf")
+def export_reservation_pdf(
+    reservation_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    导出预约单 PDF。
+    - 申请人可导出自己的预约
+    - 导师可导出自己学生的预约
+    - 管理员/负责人可导出所有
+    """
+    reservation = db.execute(
+        select(Reservation)
+        .options(
+            joinedload(Reservation.device),
+            joinedload(Reservation.user),
+            joinedload(Reservation.advisor),
+            joinedload(Reservation.approver),
+            joinedload(Reservation.head),
+        )
+        .where(Reservation.id == reservation_id)
+    ).scalar_one_or_none()
+
+    if not reservation:
+        raise NotFoundError(f"预约不存在 (id={reservation_id})")
+
+    # 权限检查（与 get_reservation 保持一致）
+    if current_user.role not in [UserRole.ADMIN, UserRole.HEAD] and reservation.user_id != current_user.id:
+        if current_user.borrower_type == BorrowerType.TEACHER:
+            applicant = db.get(User, reservation.user_id)
+            if not (applicant and applicant.advisor_no == current_user.teacher_no):
+                raise AppError(ErrorCode.PERMISSION_DENIED, "无权导出该预约")
+        else:
+            raise AppError(ErrorCode.PERMISSION_DENIED, "无权导出该预约")
+
+    pdf_bytes = generate_reservation_pdf(reservation)
+    filename = f"reservation-{reservation.id}.pdf"
+    return StreamingResponse(
+        io.BytesIO(pdf_bytes),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename=\"{filename}\"'},
+    )
 
 @router.get("", response_model=dict)
 def list_reservations(
