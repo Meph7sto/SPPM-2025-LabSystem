@@ -10,7 +10,7 @@ import sqlalchemy as sa
 
 
 revision = "20260113_add_notifications"
-down_revision = "20260112_finance_integration"
+down_revision = "430c8a0d2252"
 branch_labels = None
 depends_on = None
 
