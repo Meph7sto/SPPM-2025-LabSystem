@@ -161,6 +161,12 @@ class Reservation(Base):
 
     # 归还备注 (归还时，如设备检查情况)
     return_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # 超期提醒发送时间 (用于避免重复提醒)
+    overdue_notified_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
     
     # -------------------------------------------------------------------------
     # 元数据

@@ -10,11 +10,17 @@ from sqlalchemy.orm import Session
 
 from ...db.session import get_db
 from ...models.reservation import Reservation, ReservationStatus, PaymentStatus
+from ...models.user import User, UserRole
+from ...services.notifications import notify_report_generated
+from ..deps import require_roles
 
 router = APIRouter(prefix="/reports", tags=["reports"])
 
 @router.get("/summary")
-def report_summary(db: Session = Depends(get_db)):
+def report_summary(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(UserRole.ADMIN, UserRole.HEAD)),
+):
     """
     报表汇总统计
     """
@@ -54,7 +60,10 @@ def report_summary(db: Session = Depends(get_db)):
     }
 
 @router.get("/weekly")
-def report_weekly(db: Session = Depends(get_db)):
+def report_weekly(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(UserRole.ADMIN, UserRole.HEAD)),
+):
     start = datetime.now() - timedelta(days=7)
 
     count = (
@@ -71,7 +80,10 @@ def report_weekly(db: Session = Depends(get_db)):
     }
 
 @router.get("/monthly")
-def report_monthly(db: Session = Depends(get_db)):
+def report_monthly(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(UserRole.ADMIN, UserRole.HEAD)),
+):
     start = datetime.now().replace(day=1)
 
     count = (
@@ -88,7 +100,10 @@ def report_monthly(db: Session = Depends(get_db)):
     }
 
 @router.get("/yearly")
-def report_yearly(db: Session = Depends(get_db)):
+def report_yearly(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(UserRole.ADMIN, UserRole.HEAD)),
+):
     start = datetime.now().replace(month=1, day=1)
 
     count = (
@@ -104,7 +119,10 @@ def report_yearly(db: Session = Depends(get_db)):
         "total_reservations": count,
     }
 @router.get("/weekly/excel", summary="导出周报 Excel")
-def export_weekly_report_excel(db: Session = Depends(get_db)):
+def export_weekly_report_excel(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(UserRole.ADMIN, UserRole.HEAD)),
+):
     # 1. 计算本周时间范围
     today = date.today()
     start_date = today - timedelta(days=today.weekday())
@@ -164,6 +182,15 @@ def export_weekly_report_excel(db: Session = Depends(get_db)):
         )
     }
 
+    notify_report_generated(
+        db,
+        to_user_id=current_user.id,
+        report_type="weekly",
+        report_format="excel",
+        from_user_id=current_user.id,
+    )
+    db.commit()
+
     return StreamingResponse(
         output,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -171,7 +198,10 @@ def export_weekly_report_excel(db: Session = Depends(get_db)):
     )
 
 @router.get("/yearly/excel", summary="导出年报 Excel")
-def export_yearly_report_excel(db: Session = Depends(get_db)):
+def export_yearly_report_excel(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(UserRole.ADMIN, UserRole.HEAD)),
+):
     # 1. 计算本年时间范围
     today = date.today()
     start_date = today.replace(month=1, day=1)
@@ -225,13 +255,25 @@ def export_yearly_report_excel(db: Session = Depends(get_db)):
         "Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename_cn)}"
     }
 
+    notify_report_generated(
+        db,
+        to_user_id=current_user.id,
+        report_type="yearly",
+        report_format="excel",
+        from_user_id=current_user.id,
+    )
+    db.commit()
+
     return StreamingResponse(
         output,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers=headers
     )
 @router.get("/monthly/excel", summary="导出月报 Excel")
-def export_monthly_report_excel(db: Session = Depends(get_db)):
+def export_monthly_report_excel(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(UserRole.ADMIN, UserRole.HEAD)),
+):
     # 1. 计算本月时间范围
     today = date.today()
     start_date = today.replace(day=1)
@@ -288,6 +330,15 @@ def export_monthly_report_excel(db: Session = Depends(get_db)):
     headers = {
         "Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename_cn)}"
     }
+
+    notify_report_generated(
+        db,
+        to_user_id=current_user.id,
+        report_type="monthly",
+        report_format="excel",
+        from_user_id=current_user.id,
+    )
+    db.commit()
 
     return StreamingResponse(
         output,

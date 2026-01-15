@@ -9,6 +9,7 @@ from fastapi import APIRouter
 from . import auth
 from . import users
 from . import devices
+from . import maintenance_windows
 from . import reservations
 from . import reports
 from . import system_config  # 系统配置接口
@@ -23,6 +24,7 @@ router = APIRouter()
 router.include_router(auth.router, tags=["Auth"])
 router.include_router(users.router, tags=["Users"])
 router.include_router(devices.router, tags=["Devices"])
+router.include_router(maintenance_windows.router, tags=["Maintenance Windows"])
 router.include_router(reservations.router, tags=["Reservations"])
 router.include_router(reports.router, tags=["Reports"])
 router.include_router(system_config.router, tags=["System Config"])  # 你的接口
@@ -35,6 +37,7 @@ __all__ = [
     "auth",
     "users",
     "devices",
+    "maintenance_windows",
     "reservations",
     "reports",
     "system_config",

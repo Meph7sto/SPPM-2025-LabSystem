@@ -14,6 +14,10 @@ class NotificationType(str, enum.Enum):
     SUBMIT_SUCCESS = "submit_success"
     APPROVAL_RESULT = "approval_result"
     PAYMENT_CONFIRMED = "payment_confirmed"
+    RESERVATION_CANCELLED = "reservation_cancelled"
+    REFUND_PROCESSED = "refund_processed"
+    REPORT_GENERATED = "report_generated"
+    OVERDUE_REMINDER = "overdue_reminder"
 
 
 class Notification(Base):

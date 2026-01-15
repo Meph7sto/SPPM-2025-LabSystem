@@ -11,6 +11,7 @@ from ...core.errors import AppError, ErrorCode, NotFoundError
 from ...core.response import ok
 from ...db.session import get_db
 from ...models.device import Device, DeviceStatus
+from ...models.maintenance_window import MaintenanceWindow
 from ...models.reservation import Reservation, ReservationStatus
 from ...models.user import User, UserRole
 from ...schemas import DeviceAvailabilityItem, DeviceCreate, DeviceOut, DeviceUpdate
@@ -68,7 +69,9 @@ def _derive_zone(device_no: str) -> str:
 
 
 def _resolve_availability_status(
-    device: Device, occupied_device_ids: set[int]
+    device: Device,
+    occupied_device_ids: set[int],
+    maintenance_device_ids: set[int],
 ) -> tuple[str, str]:
     """
     计算设备在特定时间段的显示状态。
@@ -76,7 +79,7 @@ def _resolve_availability_status(
     Returns:
         tuple[str, str]: (状态文本, 状态样式类)
     """
-    if device.status == DeviceStatus.MAINTENANCE:
+    if device.status == DeviceStatus.MAINTENANCE or device.id in maintenance_device_ids:
         return "检修", "chip-alert"
     if device.status == DeviceStatus.SCRAPPED:
         return "停用", "chip-neutral"
@@ -135,6 +138,7 @@ def get_device_availability(
     # 查询占用情况：查找当前时间段内有有效预约的设备
     device_ids = [d.id for d in devices]
     occupied_device_ids: set[int] = set()
+    maintenance_device_ids: set[int] = set()
     if device_ids:
         # 定义视为"占用"的预约状态
         active_statuses = [
@@ -156,11 +160,21 @@ def get_device_availability(
         )
         occupied_device_ids = set(db.execute(conflict_stmt).scalars().all())
 
+        maintenance_stmt = (
+            select(MaintenanceWindow.device_id)
+            .where(MaintenanceWindow.device_id.in_(device_ids))
+            .where(MaintenanceWindow.start_time < end_dt)
+            .where(MaintenanceWindow.end_time > start_dt)
+        )
+        maintenance_device_ids = set(db.execute(maintenance_stmt).scalars().all())
+
     # 组装返回数据
     items: list[DeviceAvailabilityItem] = []
     for device in devices:
         zone_value = _derive_zone(device.device_no)
-        status, status_class = _resolve_availability_status(device, occupied_device_ids)
+        status, status_class = _resolve_availability_status(
+            device, occupied_device_ids, maintenance_device_ids
+        )
         meta_source = device.manufacturer or device.usage or device.model or "设备"
         items.append(DeviceAvailabilityItem(
             id=device.id,

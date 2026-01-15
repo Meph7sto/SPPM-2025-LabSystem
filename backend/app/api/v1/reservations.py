@@ -12,6 +12,7 @@ from ...core.response import ok
 from ...db.session import get_db
 from ...models.device import Device
 from ...models.finance import FinancePayment, RefundRecord
+from ...models.maintenance_window import MaintenanceWindow
 from ...models.reservation import Reservation, ReservationStatus, PaymentStatus, ApprovalStep
 from ...models.user import User, UserRole, BorrowerType
 from ...schemas import ReservationCreate, ReservationDetail, ReservationUpdate, ReservationListItem
@@ -19,6 +20,8 @@ from ...services.notifications import (
     notify_approval_result,
     notify_payment_confirmed,
     notify_submit_success,
+    notify_refund_processed,
+    notify_reservation_cancelled,
 )
 from ..deps import get_current_user, require_roles
 
@@ -33,6 +36,8 @@ ACTIVE_CONFLICT_STATUSES = [
     ReservationStatus.EFFECTIVE,
     ReservationStatus.BORROWED,
 ]
+
+ACTIVE_STATUS_VALUES = {status.value for status in ACTIVE_CONFLICT_STATUSES}
 
 BLOCKING_CONFLICT_STATUSES = [
     ReservationStatus.APPROVED,
@@ -120,6 +125,30 @@ def _ensure_no_blocking_conflict(
     )
     if conflict_count:
         raise AppError(ErrorCode.CONFLICT, "该设备在该时段已被占用，请调整时间或处理冲突预约")
+
+
+def _count_maintenance_conflicts(
+    db: Session,
+    device_id: int,
+    start_time: datetime,
+    end_time: datetime,
+) -> int:
+    stmt = select(func.count()).select_from(MaintenanceWindow).where(
+        MaintenanceWindow.device_id == device_id,
+        MaintenanceWindow.start_time < end_time,
+        MaintenanceWindow.end_time > start_time,
+    )
+    return int(db.execute(stmt).scalar() or 0)
+
+
+def _ensure_no_maintenance_conflict(
+    db: Session,
+    device_id: int,
+    start_time: datetime,
+    end_time: datetime,
+) -> None:
+    if _count_maintenance_conflicts(db, device_id, start_time, end_time):
+        raise AppError(ErrorCode.CONFLICT, "该设备处于检修时间窗内，无法预约")
 
 
 def _build_conflict_info(db: Session, reservation: Reservation) -> dict:
@@ -409,6 +438,12 @@ def create_reservation(
     if duration_seconds % 7200 != 0:
         raise AppError(ErrorCode.INVALID_REQUEST, "借用时间必须是2小时的整数倍")
 
+    _ensure_no_maintenance_conflict(
+        db,
+        payload.device_id,
+        payload.start_time,
+        payload.end_time,
+    )
     _lock_device(db, payload.device_id)
     _ensure_no_blocking_conflict(db, payload.device_id, payload.start_time, payload.end_time)
 
@@ -575,6 +610,12 @@ def sync_payment_status(
             reservation.end_time,
             exclude_id=reservation.id,
         )
+        _ensure_no_maintenance_conflict(
+            db,
+            reservation.device_id,
+            reservation.start_time,
+            reservation.end_time,
+        )
         reservation.payment_status = PaymentStatus.PAID
         reservation.payment_time = fp.paid_time
         if reservation.current_step == ApprovalStep.PAYMENT:
@@ -619,6 +660,12 @@ def finalize_reservation(
         reservation.start_time,
         reservation.end_time,
         exclude_id=reservation.id,
+    )
+    _ensure_no_maintenance_conflict(
+        db,
+        reservation.device_id,
+        reservation.start_time,
+        reservation.end_time,
     )
 
     reservation.status = ReservationStatus.EFFECTIVE
@@ -681,6 +728,21 @@ def cancel_reservation_with_refund(
 
     reservation.status = ReservationStatus.CANCELLED
     reservation.current_step = None
+
+    notify_reservation_cancelled(
+        db,
+        to_user_id=reservation.user_id,
+        reservation_id=reservation.id,
+        from_user_id=current_user.id,
+    )
+    if refund_amount > 0:
+        notify_refund_processed(
+            db,
+            to_user_id=reservation.user_id,
+            reservation_id=reservation.id,
+            refund_amount=refund_amount,
+            from_user_id=current_user.id,
+        )
     db.commit()
     db.refresh(reservation)
     return ok(
@@ -746,20 +808,37 @@ def update_reservation(
 
     target_status = update_data.get("status", reservation.status)
     target_status_value = target_status.value if isinstance(target_status, ReservationStatus) else str(target_status)
+    target_start = update_data.get("start_time", reservation.start_time)
+    target_end = update_data.get("end_time", reservation.end_time)
     should_check_conflict = (
         "start_time" in update_data
         or "end_time" in update_data
         or target_status_value in BLOCKING_STATUS_VALUES
     )
     if should_check_conflict and target_status_value != ReservationStatus.CANCELLED.value:
-        target_start = update_data.get("start_time", reservation.start_time)
-        target_end = update_data.get("end_time", reservation.end_time)
         _ensure_no_blocking_conflict(
             db,
             reservation.device_id,
             target_start,
             target_end,
             exclude_id=reservation.id,
+        )
+
+    maintenance_check = (
+        "start_time" in update_data
+        or "end_time" in update_data
+        or (reservation.status != old_status and target_status_value in ACTIVE_STATUS_VALUES)
+    )
+    if maintenance_check and target_status_value not in [
+        ReservationStatus.CANCELLED.value,
+        ReservationStatus.REJECTED.value,
+        ReservationStatus.RETURNED.value,
+    ]:
+        _ensure_no_maintenance_conflict(
+            db,
+            reservation.device_id,
+            target_start,
+            target_end,
         )
 
     priority_rejected = False
