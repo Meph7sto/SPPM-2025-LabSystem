@@ -10,12 +10,12 @@ from sqlalchemy.orm import Session, joinedload
 from ...core.errors import AppError, ErrorCode, NotFoundError
 from ...core.response import ok
 from ...db.session import get_db
-from ...models.device import Device
+from ...models.device import Device, DeviceStatus
 from ...models.finance import FinancePayment, RefundRecord
 from ...models.maintenance_window import MaintenanceWindow
 from ...models.reservation import Reservation, ReservationStatus, PaymentStatus, ApprovalStep
 from ...models.user import User, UserRole, BorrowerType
-from ...schemas import ReservationCreate, ReservationDetail, ReservationUpdate, ReservationListItem
+from ...schemas import ReservationCreate, ReservationDetail, ReservationUpdate, ReservationListItem, BorrowRequest, ReturnRequest
 from ...services.notifications import (
     notify_approval_result,
     notify_payment_confirmed,
@@ -397,6 +397,32 @@ def compute_next_action(reservation: Reservation) -> dict | None:
             "current_step": None,
         }
     return None
+
+
+def _update_device_status_on_borrow(db: Session, device_id: int) -> None:
+    """T36: 借出时更新设备状态为使用中。"""
+    device = db.get(Device, device_id)
+    if device and device.status != DeviceStatus.SCRAPPED:
+        device.status = DeviceStatus.IN_USE
+
+
+def _update_device_status_on_return(
+    db: Session,
+    device_id: int,
+    condition: str,
+) -> None:
+    """T36: 归还时根据设备状态更新设备。"""
+    device = db.get(Device, device_id)
+    if not device or device.status == DeviceStatus.SCRAPPED:
+        return
+    
+    if condition == "normal":
+        device.status = DeviceStatus.IDLE
+    elif condition in ["damaged", "needs_maintenance"]:
+        device.status = DeviceStatus.MAINTENANCE
+    else:
+        # 默认恢复为空闲状态
+        device.status = DeviceStatus.IDLE
 
 
 @router.post("", response_model=dict)
@@ -899,6 +925,123 @@ def delete_reservation(
 
 
 # ==================== 台账查询接口 ====================
+
+@router.post("/{reservation_id}/borrow", response_model=dict)
+def borrow_equipment(
+    reservation_id: int,
+    payload: BorrowRequest,
+    current_user: User = Depends(require_roles(UserRole.ADMIN)),
+    db: Session = Depends(get_db),
+) -> dict:
+    """
+    借出登记（T34 / FR-25）。
+    
+    仅管理员可操作。要求预约必须处于 EFFECTIVE（已生效）状态。
+    操作完成后：
+    1. 记录借出时间 (borrow_time)
+    2. 记录交接备注 (handover_note)
+    3. 更新预约状态为 BORROWED（已借出）
+    4. 更新设备状态为 IN_USE（使用中）- T36
+    """
+    reservation = db.get(Reservation, reservation_id)
+    if not reservation:
+        raise NotFoundError(f"预约不存在 (id={reservation_id})")
+    
+    # 验证预约状态：必须是已生效
+    if reservation.status != ReservationStatus.EFFECTIVE:
+        raise AppError(
+            ErrorCode.INVALID_REQUEST,
+            f"预约状态必须为已生效才能借出，当前状态：{reservation.status.value}"
+        )
+    
+    # 验证设备存在
+    device = db.get(Device, reservation.device_id)
+    if not device:
+        raise NotFoundError(f"设备不存在 (id={reservation.device_id})")
+    
+    if device.status == DeviceStatus.SCRAPPED:
+        raise AppError(ErrorCode.INVALID_REQUEST, "设备已报废，无法借出")
+    
+    # 记录借出信息
+    reservation.borrow_time = datetime.utcnow()
+    reservation.handover_note = payload.handover_note
+    reservation.status = ReservationStatus.BORROWED
+    
+    # T36: 更新设备状态为使用中
+    _update_device_status_on_borrow(db, reservation.device_id)
+    
+    db.commit()
+    db.refresh(reservation)
+    
+    return ok(
+        ReservationDetail.model_validate(reservation).model_dump(),
+        message="借出登记成功"
+    )
+
+
+@router.post("/{reservation_id}/return", response_model=dict)
+def return_equipment(
+    reservation_id: int,
+    payload: ReturnRequest,
+    current_user: User = Depends(require_roles(UserRole.ADMIN)),
+    db: Session = Depends(get_db),
+) -> dict:
+    """
+    归还登记（T35 / FR-26）。
+    
+    仅管理员可操作。要求预约必须处于 BORROWED（已借出）状态。
+    操作完成后：
+    1. 记录归还时间 (return_time)
+    2. 记录归还备注 (return_note)
+    3. 更新预约状态为 COMPLETED（已完成）
+    4. 根据设备状态更新设备：
+       - normal: IDLE（空闲）
+       - damaged/needs_maintenance: MAINTENANCE（检修中）- T36
+    """
+    reservation = db.get(Reservation, reservation_id)
+    if not reservation:
+        raise NotFoundError(f"预约不存在 (id={reservation_id})")
+    
+    # 验证预约状态：必须是已借出
+    if reservation.status != ReservationStatus.BORROWED:
+        raise AppError(
+            ErrorCode.INVALID_REQUEST,
+            f"预约状态必须为已借出才能归还，当前状态：{reservation.status.value}"
+        )
+    
+    # 验证设备状态选项
+    valid_conditions = ["normal", "damaged", "needs_maintenance"]
+    if payload.device_condition not in valid_conditions:
+        raise AppError(
+            ErrorCode.INVALID_REQUEST,
+            f"设备状态无效，必须为：{', '.join(valid_conditions)}"
+        )
+    
+    # 验证设备存在
+    device = db.get(Device, reservation.device_id)
+    if not device:
+        raise NotFoundError(f"设备不存在 (id={reservation.device_id})")
+    
+    # 记录归还信息
+    reservation.return_time = datetime.utcnow()
+    reservation.return_note = payload.return_note
+    reservation.status = ReservationStatus.COMPLETED
+    
+    # T36: 根据设备状态更新设备
+    _update_device_status_on_return(
+        db,
+        reservation.device_id,
+        payload.device_condition,
+    )
+    
+    db.commit()
+    db.refresh(reservation)
+    
+    return ok(
+        ReservationDetail.model_validate(reservation).model_dump(),
+        message=f"归还登记成功，设备状态：{payload.device_condition}"
+    )
+
 
 @router.get("/ledger/summary", response_model=dict)
 def get_reservation_ledger_summary(
