@@ -88,8 +88,13 @@
                   {{ item.priority }}
                 </span>
                 <span class="chip chip-neutral">{{ item.step }}</span>
-                <span v-if="item.conflict" class="chip chip-alert">冲突</span>
+                <span v-if="item.conflict" class="chip chip-alert">
+                  冲突 {{ item.conflictCount }} 条
+                </span>
               </div>
+              <p v-if="item.conflict" class="form-hint">
+                冲突预约存在，{{ item.priority }}处理
+              </p>
               <p class="chain-caption">审批链条</p>
               <div class="approval-chain">
                 <div
@@ -199,7 +204,14 @@ const approvals = computed(() => {
     role === "head" ? "head" : "admin";
   return reservations.value
     .filter((item) => item.current_step === currentStep)
-    .map((item) => toApprovalCard(item));
+    .map((item) => toApprovalCard(item))
+    .sort((a, b) => {
+      if (a.conflict !== b.conflict) return a.conflict ? -1 : 1;
+      if (a.priorityLevel !== b.priorityLevel) return a.priorityLevel - b.priorityLevel;
+      const timeA = new Date(a.raw?.created_at || 0).getTime();
+      const timeB = new Date(b.raw?.created_at || 0).getTime();
+      return timeB - timeA;
+    });
 });
 
 const priorityClass = (priority) => {
@@ -264,7 +276,19 @@ const toApprovalCard = (item) => {
       : borrowerType === "external"
       ? "校外"
       : "教师";
-  const priority = borrowerType === "external" ? "校外缴费" : "校内优先";
+  const priority =
+    item.priority || (borrowerType === "external" ? "校外缴费" : "校内优先");
+  const priorityLevel = Number.isFinite(item.priority_level)
+    ? item.priority_level
+    : borrowerType === "external"
+    ? 2
+    : 1;
+  const conflictCount = Number.isFinite(item.conflict_count)
+    ? item.conflict_count
+    : item.conflict
+    ? 1
+    : 0;
+  const conflict = Boolean(item.conflict || conflictCount);
   const stepLabel = stepLabelMap[item.current_step] || "待处理";
   return {
     id: item.id,
@@ -275,7 +299,9 @@ const toApprovalCard = (item) => {
     )}`,
     step: stepLabel,
     priority,
-    conflict: false,
+    priorityLevel,
+    conflict,
+    conflictCount,
     status: "待处理",
     chain: buildChain(item),
     raw: item,

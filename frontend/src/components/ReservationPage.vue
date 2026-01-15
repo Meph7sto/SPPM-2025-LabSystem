@@ -221,8 +221,8 @@ const handleSubmit = async () => {
   }
   
   if (isConflict.value) {
-    alert("该时段设备已被占用，请修改预约方案");
-    return;
+    const proceed = confirm("该时段存在预约冲突，将进入人工审批并遵循校内优先。是否继续提交？");
+    if (!proceed) return;
   }
 
   const [startHour, endHour] = form.slot.split("-").map(s => s.trim());

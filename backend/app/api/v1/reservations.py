@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import List
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import select, func
+from sqlalchemy import select, func, text
 from sqlalchemy.orm import Session, joinedload
 
 from ...core.errors import AppError, ErrorCode, NotFoundError
@@ -23,6 +23,110 @@ from ...services.notifications import (
 from ..deps import get_current_user, require_roles
 
 router = APIRouter(prefix="/reservations")
+
+ACTIVE_CONFLICT_STATUSES = [
+    ReservationStatus.PENDING,
+    ReservationStatus.ADVISOR_APPROVED,
+    ReservationStatus.ADMIN_APPROVED,
+    ReservationStatus.HEAD_APPROVED,
+    ReservationStatus.APPROVED,
+    ReservationStatus.EFFECTIVE,
+    ReservationStatus.BORROWED,
+]
+
+BLOCKING_CONFLICT_STATUSES = [
+    ReservationStatus.APPROVED,
+    ReservationStatus.EFFECTIVE,
+    ReservationStatus.BORROWED,
+]
+
+BLOCKING_STATUS_VALUES = {status.value for status in BLOCKING_CONFLICT_STATUSES}
+
+
+def _begin_reservation_transaction(db: Session) -> None:
+    """确保在冲突校验前获取写锁，避免并发双占用。"""
+    engine = db.get_bind()
+    if engine.dialect.name != "sqlite":
+        return
+    if db.in_transaction():
+        db.rollback()
+    try:
+        db.execute(text("BEGIN IMMEDIATE"))
+    except Exception as exc:
+        raise AppError(ErrorCode.CONFLICT, "系统繁忙，请稍后再试") from exc
+
+
+def _lock_device(db: Session, device_id: int) -> None:
+    """在支持行级锁的数据库中锁定设备行。"""
+    engine = db.get_bind()
+    if engine.dialect.name == "sqlite":
+        return
+    db.execute(
+        select(Device.id)
+        .where(Device.id == device_id)
+        .with_for_update()
+    )
+
+
+def _count_conflicts(
+    db: Session,
+    device_id: int,
+    start_time: datetime,
+    end_time: datetime,
+    exclude_id: int | None = None,
+    statuses: list[ReservationStatus] | None = None,
+) -> int:
+    stmt = select(func.count()).select_from(Reservation).where(
+        Reservation.device_id == device_id,
+        Reservation.start_time < end_time,
+        Reservation.end_time > start_time,
+    )
+    if exclude_id is not None:
+        stmt = stmt.where(Reservation.id != exclude_id)
+    if statuses:
+        stmt = stmt.where(Reservation.status.in_(statuses))
+    return int(db.execute(stmt).scalar() or 0)
+
+
+def _ensure_no_blocking_conflict(
+    db: Session,
+    device_id: int,
+    start_time: datetime,
+    end_time: datetime,
+    exclude_id: int | None = None,
+) -> None:
+    conflict_count = _count_conflicts(
+        db,
+        device_id=device_id,
+        start_time=start_time,
+        end_time=end_time,
+        exclude_id=exclude_id,
+        statuses=BLOCKING_CONFLICT_STATUSES,
+    )
+    if conflict_count:
+        raise AppError(ErrorCode.CONFLICT, "该设备在该时段已被占用，请调整时间或处理冲突预约")
+
+
+def _build_conflict_info(db: Session, reservation: Reservation) -> dict:
+    conflict_count = _count_conflicts(
+        db,
+        device_id=reservation.device_id,
+        start_time=reservation.start_time,
+        end_time=reservation.end_time,
+        exclude_id=reservation.id,
+        statuses=ACTIVE_CONFLICT_STATUSES,
+    )
+    return {
+        "conflict": conflict_count > 0,
+        "conflict_count": conflict_count,
+    }
+
+
+def _priority_info(user: User | None) -> dict:
+    borrower_type = user.borrower_type if user else None
+    if borrower_type == BorrowerType.EXTERNAL:
+        return {"priority": "校外缴费", "priority_level": 2}
+    return {"priority": "校内优先", "priority_level": 1}
 
 
 def _compute_payment_amount(reservation: Reservation, device: Device) -> float:
@@ -70,18 +174,6 @@ def _ensure_finance_payment(db: Session, reservation: Reservation) -> None:
                 status="pending",
             )
         )
-    else:
-        # 保持订单号与金额一致
-        finance_payment.order_no = reservation.payment_order_no
-        finance_payment.amount = reservation.payment_amount
-
-
-def determine_initial_step(borrower_type: BorrowerType | None) -> ApprovalStep:
-    """根据借用人类型确定初始审批步骤"""
-    if borrower_type == BorrowerType.STUDENT:
-        return ApprovalStep.ADVISOR  # 学生先导师审批
-    elif borrower_type == BorrowerType.EXTERNAL:
-        return ApprovalStep.ADMIN    # 校外先管理员审批
     else:
         # 保持订单号与金额一致
         finance_payment.order_no = reservation.payment_order_no
@@ -189,6 +281,10 @@ def create_reservation(
     创建新预约申请。
     自动初始化审批流程状态。
     """
+    _begin_reservation_transaction(db)
+    _lock_device(db, payload.device_id)
+    _ensure_no_blocking_conflict(db, payload.device_id, payload.start_time, payload.end_time)
+
     # 1. 确定初始状态
     initial_step = determine_initial_step(current_user.borrower_type)
     payment_status = determine_payment_status(current_user.borrower_type)
@@ -206,7 +302,10 @@ def create_reservation(
     notify_submit_success(db, user_id=current_user.id, reservation_id=reservation.id)
     db.commit()
     db.refresh(reservation)
-    return ok(ReservationDetail.model_validate(reservation).model_dump())
+    response = ReservationDetail.model_validate(reservation).model_dump()
+    response.update(_build_conflict_info(db, reservation))
+    response.update(_priority_info(reservation.user))
+    return ok(response)
 
 
 @router.get("/{reservation_id}", response_model=dict)
@@ -241,6 +340,8 @@ def get_reservation(
 
     response = ReservationDetail.model_validate(reservation).model_dump()
     response["next_action"] = compute_next_action(reservation)
+    response.update(_build_conflict_info(db, reservation))
+    response.update(_priority_info(reservation.user))
     return ok(response)
 
 
@@ -305,6 +406,8 @@ def list_reservations(
     for reservation in reservations:
         item = ReservationListItem.model_validate(reservation).model_dump()
         item["next_action"] = compute_next_action(reservation)
+        item.update(_build_conflict_info(db, reservation))
+        item.update(_priority_info(reservation.user))
         items.append(item)
 
     return ok({
@@ -322,9 +425,11 @@ def sync_payment_status(
     db: Session = Depends(get_db),
 ) -> dict:
     """从财务系统同步缴费确认（T29）。"""
+    _begin_reservation_transaction(db)
     reservation = db.get(Reservation, reservation_id)
     if not reservation:
         raise NotFoundError(f"预约不存在 (id={reservation_id})")
+    _lock_device(db, reservation.device_id)
     if not reservation.payment_order_no:
         raise AppError(ErrorCode.INVALID_REQUEST, "该预约未生成缴费单")
 
@@ -336,6 +441,13 @@ def sync_payment_status(
 
     old_payment_status = reservation.payment_status
     if fp.status == "paid":
+        _ensure_no_blocking_conflict(
+            db,
+            reservation.device_id,
+            reservation.start_time,
+            reservation.end_time,
+            exclude_id=reservation.id,
+        )
         reservation.payment_status = PaymentStatus.PAID
         reservation.payment_time = fp.paid_time
         if reservation.current_step == ApprovalStep.PAYMENT:
@@ -361,9 +473,11 @@ def finalize_reservation(
     db: Session = Depends(get_db),
 ) -> dict:
     """管理员最终确认：缴费确认成功后才能进入“已生效/可借出”（T32）。"""
+    _begin_reservation_transaction(db)
     reservation = db.get(Reservation, reservation_id)
     if not reservation:
         raise NotFoundError(f"预约不存在 (id={reservation_id})")
+    _lock_device(db, reservation.device_id)
 
     if reservation.current_step != ApprovalStep.FINAL:
         raise AppError(ErrorCode.INVALID_REQUEST, "当前预约不在最终确认步骤")
@@ -371,6 +485,14 @@ def finalize_reservation(
     if reservation.user and reservation.user.borrower_type == BorrowerType.EXTERNAL:
         if reservation.payment_status != PaymentStatus.PAID:
             raise AppError(ErrorCode.INVALID_REQUEST, "校外预约必须缴费成功后才能最终确认")
+
+    _ensure_no_blocking_conflict(
+        db,
+        reservation.device_id,
+        reservation.start_time,
+        reservation.end_time,
+        exclude_id=reservation.id,
+    )
 
     reservation.status = ReservationStatus.EFFECTIVE
     reservation.current_step = None
@@ -455,9 +577,11 @@ def update_reservation(
     管理员/负责人：
     1. 拥有完全修改权限。
     """
+    _begin_reservation_transaction(db)
     reservation = db.get(Reservation, reservation_id)
     if not reservation:
         raise NotFoundError(f"预约不存在 (id={reservation_id})")
+    _lock_device(db, reservation.device_id)
     
     is_admin = current_user.role in [UserRole.ADMIN, UserRole.HEAD]
     is_owner = reservation.user_id == current_user.id
@@ -488,6 +612,24 @@ def update_reservation(
     for key, value in update_data.items():
         setattr(reservation, key, value)
 
+    target_status = update_data.get("status", reservation.status)
+    target_status_value = target_status.value if isinstance(target_status, ReservationStatus) else str(target_status)
+    should_check_conflict = (
+        "start_time" in update_data
+        or "end_time" in update_data
+        or target_status_value in BLOCKING_STATUS_VALUES
+    )
+    if should_check_conflict and target_status_value != ReservationStatus.CANCELLED.value:
+        target_start = update_data.get("start_time", reservation.start_time)
+        target_end = update_data.get("end_time", reservation.end_time)
+        _ensure_no_blocking_conflict(
+            db,
+            reservation.device_id,
+            target_start,
+            target_end,
+            exclude_id=reservation.id,
+        )
+
     # T28: 校外预约进入缴费步骤时生成缴费单
     _ensure_finance_payment(db, reservation)
     
@@ -511,7 +653,10 @@ def update_reservation(
 
     db.commit()
     db.refresh(reservation)
-    return ok(ReservationDetail.model_validate(reservation).model_dump(), message="预约更新成功")
+    response = ReservationDetail.model_validate(reservation).model_dump()
+    response.update(_build_conflict_info(db, reservation))
+    response.update(_priority_info(reservation.user))
+    return ok(response, message="预约更新成功")
 
 
 @router.delete("/{reservation_id}", response_model=dict)
