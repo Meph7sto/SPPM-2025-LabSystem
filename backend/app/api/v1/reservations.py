@@ -42,6 +42,21 @@ BLOCKING_CONFLICT_STATUSES = [
 
 BLOCKING_STATUS_VALUES = {status.value for status in BLOCKING_CONFLICT_STATUSES}
 
+PRIORITY_CONFLICT_STATUSES = [
+    ReservationStatus.PENDING,
+    ReservationStatus.ADVISOR_APPROVED,
+    ReservationStatus.ADMIN_APPROVED,
+    ReservationStatus.HEAD_APPROVED,
+]
+
+PRIORITY_DECISION_STATUS_VALUES = {
+    ReservationStatus.ADVISOR_APPROVED.value,
+    ReservationStatus.ADMIN_APPROVED.value,
+    ReservationStatus.HEAD_APPROVED.value,
+    ReservationStatus.APPROVED.value,
+    ReservationStatus.EFFECTIVE.value,
+}
+
 
 def _begin_reservation_transaction(db: Session) -> None:
     """确保在冲突校验前获取写锁，避免并发双占用。"""
@@ -122,11 +137,95 @@ def _build_conflict_info(db: Session, reservation: Reservation) -> dict:
     }
 
 
+def _priority_level(user: User | None) -> int:
+    if user and user.borrower_type == BorrowerType.EXTERNAL:
+        return 2
+    return 1
+
+
 def _priority_info(user: User | None) -> dict:
-    borrower_type = user.borrower_type if user else None
-    if borrower_type == BorrowerType.EXTERNAL:
-        return {"priority": "校外缴费", "priority_level": 2}
-    return {"priority": "校内优先", "priority_level": 1}
+    level = _priority_level(user)
+    if level == 2:
+        return {"priority": "校外缴费", "priority_level": level}
+    return {"priority": "校内优先", "priority_level": level}
+
+
+def _fetch_priority_conflicts(db: Session, reservation: Reservation) -> list[Reservation]:
+    stmt = (
+        select(Reservation)
+        .options(joinedload(Reservation.user))
+        .where(
+            Reservation.device_id == reservation.device_id,
+            Reservation.start_time < reservation.end_time,
+            Reservation.end_time > reservation.start_time,
+            Reservation.id != reservation.id,
+            Reservation.status.in_(PRIORITY_CONFLICT_STATUSES),
+        )
+    )
+    return db.execute(stmt).scalars().all()
+
+
+def _auto_reject_reservation(
+    db: Session,
+    reservation: Reservation,
+    *,
+    actor_user_id: int | None,
+    reason: str,
+    notify: bool,
+) -> None:
+    reservation.status = ReservationStatus.REJECTED
+    reservation.current_step = None
+    if not reservation.approval_comment:
+        reservation.approval_comment = reason
+    if notify and reservation.user_id:
+        notify_approval_result(
+            db,
+            to_user_id=reservation.user_id,
+            reservation_id=reservation.id,
+            status="rejected",
+            from_user_id=actor_user_id,
+        )
+
+
+def _apply_priority_resolution(
+    db: Session,
+    reservation: Reservation,
+    *,
+    actor_user_id: int | None,
+) -> bool:
+    user = reservation.user or db.get(User, reservation.user_id)
+    reservation.user = user
+    current_level = _priority_level(user)
+    conflicts = _fetch_priority_conflicts(db, reservation)
+    if not conflicts:
+        return False
+
+    higher_priority = [
+        conflict for conflict in conflicts if _priority_level(conflict.user) < current_level
+    ]
+    if higher_priority:
+        _auto_reject_reservation(
+            db,
+            reservation,
+            actor_user_id=actor_user_id,
+            reason="系统自动驳回：校内预约优先",
+            notify=False,
+        )
+        return True
+
+    lower_priority = [
+        conflict for conflict in conflicts if _priority_level(conflict.user) > current_level
+    ]
+    for conflict in lower_priority:
+        _auto_reject_reservation(
+            db,
+            conflict,
+            actor_user_id=actor_user_id,
+            reason="系统自动驳回：校内预约优先",
+            notify=True,
+        )
+    return False
+
 
 
 def _compute_payment_amount(reservation: Reservation, device: Device) -> float:
@@ -663,8 +762,17 @@ def update_reservation(
             exclude_id=reservation.id,
         )
 
+    priority_rejected = False
+    if reservation.status != old_status and target_status_value in PRIORITY_DECISION_STATUS_VALUES:
+        priority_rejected = _apply_priority_resolution(
+            db,
+            reservation,
+            actor_user_id=current_user.id if current_user else None,
+        )
+
     # T28: 校外预约进入缴费步骤时生成缴费单
-    _ensure_finance_payment(db, reservation)
+    if not priority_rejected and reservation.status != ReservationStatus.REJECTED:
+        _ensure_finance_payment(db, reservation)
     
     # 审批结果通知
     if reservation.status != old_status:
