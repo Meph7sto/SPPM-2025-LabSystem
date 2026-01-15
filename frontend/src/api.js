@@ -234,6 +234,26 @@ export const reservationAPI = {
         return await request(`/reservations/${id}`, {
             method: "DELETE",
         });
+    },
+
+    /**
+     * 借出登记（T34）
+     */
+    async borrow(id, data) {
+        return await request(`/reservations/${id}/borrow`, {
+            method: "POST",
+            body: data,
+        });
+    },
+
+    /**
+     * 归还登记（T35）
+     */
+    async return(id, data) {
+        return await request(`/reservations/${id}/return`, {
+            method: "POST",
+            body: data,
+        });
     }
 };
 
