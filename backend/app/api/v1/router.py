@@ -13,7 +13,7 @@ from .reports import router as reports_router
 from .system_config import router as system_config_router
 
 router = APIRouter()
-router.include_router(reports_router, prefix="/reports", tags=["reports"])
+router.include_router(reports_router, tags=["reports"])
 router.include_router(health_router, tags=["health"])
 router.include_router(auth_router, tags=["auth"])
 router.include_router(users_router, tags=["users"])

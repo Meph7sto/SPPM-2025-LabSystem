@@ -14,6 +14,11 @@ Write-Host "  LESMS 一键启动脚本" -ForegroundColor Cyan
 Write-Host "======================================" -ForegroundColor Cyan
 Write-Host ""
 
+# [0/7] 清理端口
+if (Test-Path "$RepoRoot\kill-port.ps1") {
+    & "$RepoRoot\kill-port.ps1" -Force
+}
+
 # 检查 conda
 if (-not (Get-Command conda -ErrorAction SilentlyContinue)) {
     Write-Host "[错误] 未找到 Conda。请在 Anaconda Prompt 中运行此脚本，或将 conda 添加到 PATH。" -ForegroundColor Red
@@ -167,32 +172,8 @@ else {
 
 Write-Host "[7/7] 启动后端 API 服务器..." -ForegroundColor Yellow
 
-# 检查端口 11451 是否被占用
-$portInUse = netstat -ano | Select-String ":11451.*LISTENING"
-if ($portInUse) {
-    Write-Host "      [警告] 端口 11451 已被占用" -ForegroundColor Yellow
-    Write-Host "      正在尝试释放端口..." -ForegroundColor Yellow
-    
-    $processIds = $portInUse | ForEach-Object {
-        if ($_ -match '\s+(\d+)\s*$') {
-            $matches[1]
-        }
-    } | Select-Object -Unique
-    
-    foreach ($processId in $processIds) {
-        try {
-            $process = Get-Process -Id $processId -ErrorAction SilentlyContinue
-            if ($process -and $process.ProcessName -match "python|uvicorn") {
-                Write-Host "      终止旧的后端进程 (PID: $processId)..." -ForegroundColor Yellow
-                Stop-Process -Id $processId -Force
-                Start-Sleep -Seconds 2
-            }
-        }
-        catch {
-            Write-Host "      无法终止进程 $processId，请手动处理" -ForegroundColor Red
-        }
-    }
-}
+
+Write-Host ""
 
 Write-Host ""
 Write-Host "======================================" -ForegroundColor Cyan
