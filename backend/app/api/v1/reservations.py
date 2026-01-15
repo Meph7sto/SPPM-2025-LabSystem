@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List
 
 from fastapi import APIRouter, Depends, Query
@@ -282,6 +282,34 @@ def create_reservation(
     自动初始化审批流程状态。
     """
     _begin_reservation_transaction(db)
+    # T15 规则校验：检查设备是否存在与状态
+    device = db.get(Device, payload.device_id)
+    if not device:
+        raise NotFoundError(f"设备不存在 (id={payload.device_id})")
+    if device.status == "maintenance":  # DeviceStatus.MAINTENANCE.value
+        raise AppError(ErrorCode.CONFLICT, "设备正在维修中，暂停借用")
+    if device.status == "scrapped":
+        raise AppError(ErrorCode.CONFLICT, "设备已报废，无法借用")
+
+    # T15 规则校验：时间规则
+    # 1. 必须提前1-7天预约
+    now = datetime.now(payload.start_time.tzinfo) if payload.start_time.tzinfo else datetime.now()
+    min_start_time = now + timedelta(days=1)
+    max_start_time = now + timedelta(days=7)
+    
+    if payload.start_time < min_start_time:
+         raise AppError(ErrorCode.INVALID_REQUEST, "必须至少提前1天预约")
+    if payload.start_time > max_start_time:
+         raise AppError(ErrorCode.INVALID_REQUEST, "只能预约未来7天内的时间")
+
+    # 2. 借用时间单位为2小时 (即整除2小时, 且至少2小时)
+    duration = payload.end_time - payload.start_time
+    duration_seconds = duration.total_seconds()
+    if duration_seconds < 7200:
+        raise AppError(ErrorCode.INVALID_REQUEST, "借用时间至少为2小时")
+    if duration_seconds % 7200 != 0:
+        raise AppError(ErrorCode.INVALID_REQUEST, "借用时间必须是2小时的整数倍")
+
     _lock_device(db, payload.device_id)
     _ensure_no_blocking_conflict(db, payload.device_id, payload.start_time, payload.end_time)
 
@@ -519,6 +547,11 @@ def cancel_reservation_with_refund(
 
     if reservation.status in [ReservationStatus.BORROWED, ReservationStatus.COMPLETED]:
         raise AppError(ErrorCode.INVALID_REQUEST, "已借出/已完成的预约不能撤销")
+
+    # T15 规则校验：已经批准的预约可以撤销(至少提前1天以上)
+    now = datetime.now(reservation.start_time.tzinfo) if reservation.start_time.tzinfo else datetime.now()
+    if reservation.start_time - now < timedelta(days=1):
+         raise AppError(ErrorCode.INVALID_REQUEST, "距离预约开始时间不足1天，无法撤销")
 
     refund_amount = 0.0
     if reservation.payment_status == PaymentStatus.PAID and (reservation.payment_amount or 0) > 0:
