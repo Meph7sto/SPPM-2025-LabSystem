@@ -162,7 +162,12 @@ export const reservationAPI = {
      * 获取预约列表
      */
     async list(status, skip = 0, limit = 100, extraParams = {}) {
-        const params = new URLSearchParams({ skip: String(skip), limit: String(limit) });
+        const safeSkip = Number.isFinite(skip) ? Math.max(0, skip) : 0;
+        const safeLimit = Number.isFinite(limit) ? Math.min(Math.max(limit, 1), 100) : 100;
+        const params = new URLSearchParams({
+            skip: String(safeSkip),
+            limit: String(safeLimit),
+        });
         if (status) {
             params.set("status", status);
         }

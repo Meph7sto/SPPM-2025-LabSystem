@@ -126,7 +126,14 @@ if (-not $SkipMigrate) {
     if (Test-Path $dbScriptPath) {
         try {
             & $dbScriptPath -Command "init"
-            Write-Host "      数据库初始化完成" -ForegroundColor Green
+            Write-Host "      数据库表结构初始化/迁移完成" -ForegroundColor Green
+            
+            # 初始化演示数据
+            $initDataScript = Join-Path $RepoRoot "backend\scripts\init_data.py"
+            if (Test-Path $initDataScript) {
+                Write-Host "      正在初始化演示数据..." -ForegroundColor Green
+                python $initDataScript
+            }
         }
         catch {
             Write-Host "      [警告] 数据库初始化失败: $_" -ForegroundColor Yellow
