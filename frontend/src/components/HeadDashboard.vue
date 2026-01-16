@@ -14,7 +14,6 @@
         <div class="ribbon">
           <span class="ribbon-step active">审批终审</span>
           <span class="ribbon-step">缴费确认</span>
-          <span class="ribbon-step">最终确认</span>
           <span class="ribbon-step">借出监管</span>
           <span class="ribbon-step">报表归档</span>
         </div>
@@ -88,7 +87,7 @@
           <div class="report-item">
             <div>
               <h3>校外 · 新材料企业</h3>
-              <p>缴费确认中，等待管理员最终确认</p>
+              <p>缴费确认中，等待设备管理员确认</p>
             </div>
             <span class="chip chip-neutral">缴费中</span>
           </div>

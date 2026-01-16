@@ -116,7 +116,7 @@ def notify_payment_confirmed(
         to_user_id=to_user_id,
         type=NotificationType.PAYMENT_CONFIRMED,
         title="缴费确认完成",
-        content="财务已确认缴费，预约进入最终确认步骤。",
+        content="财务已确认缴费，预约可进入借出流程。",
         from_user_id=None,
         meta={"reservation_id": reservation_id, "order_no": order_no},
     )

@@ -236,7 +236,7 @@
           </div>
           <div class="rule-item">
             <span class="rule-title">结果同步</span>
-            <span class="rule-desc">财务回传后进入待最终确认</span>
+            <span class="rule-desc">财务回传后由设备管理员确认并记录预约状态</span>
           </div>
         </div>
         <div v-if="activeOrder" class="payment-detail">
@@ -272,7 +272,7 @@
 
 <script setup>
 import { computed, reactive, ref, onMounted, watch } from "vue";
-import { reservationAPI } from "../api";
+import { financeAPI, reservationAPI } from "../api";
 
 const props = defineProps({
   borrowerRole: {
@@ -323,6 +323,7 @@ const fetchReservations = async () => {
           .filter(item => item.payment_status !== 'not_required')
           .map(item => ({
             id: item.payment_order_no || `F-${item.id}`,
+            orderNo: item.payment_order_no,
             reservationId: `R-${item.id}`,
             detail: `校外 · ${item.description || "设备借用"} · ${item.device?.model}`,
             amount: item.payment_amount,
@@ -360,14 +361,15 @@ const mapStatus = (item) => {
   if (s === 'returned') return "退回补充材料";
   if (s === 'approved' || s === 'effective' || s === 'borrowed' || s === 'completed') return "已批准";
   if (item.payment_status === 'pending') return "待缴费";
-  if (item.payment_status === 'paid' && item.current_step === 'final') return "待确认";
+  if (item.payment_status === 'paid' && item.current_step === 'payment') return "待管理员确认";
   return "待审批";
 };
 
 const mapPaymentStatus = (status) => {
   if (status === 'pending') return "待支付";
-  if (status === 'paid') return "待确认";
+  if (status === 'paid') return "待管理员确认";
   if (status === 'refunded') return "已退款";
+  if (status === 'not_required') return "无需支付";
   return "已支付";
 };
 
@@ -397,7 +399,7 @@ const statusClass = (status) => {
   if (status === "已批准") return "chip-good";
   if (status === "待审批") return "chip-neutral";
   if (status === "待缴费") return "chip-warn";
-  if (status === "待确认") return "chip-neutral";
+  if (status === "待管理员确认") return "chip-neutral";
   if (status === "退回补充材料") return "chip-warn";
   if (status === "已撤销") return "chip-alert";
   return "chip-neutral";
@@ -405,7 +407,8 @@ const statusClass = (status) => {
 
 const paymentStatusClass = (status) => {
   if (status === "待支付") return "chip-warn";
-  if (status === "待确认") return "chip-neutral";
+  if (status === "待管理员确认") return "chip-neutral";
+  if (status === "无需支付") return "chip-neutral";
   if (status === "已支付") return "chip-good";
   if (status === "已取消") return "chip-alert";
   return "chip-neutral";
@@ -418,7 +421,7 @@ const canCancel = (status) =>
   status === "待审批" || status === "已批准" || status === "待缴费";
 
 const showPaymentAction = (status) =>
-  isExternal.value && (status === "待缴费" || status === "待确认");
+  isExternal.value && (status === "待缴费" || status === "待管理员确认");
 
 const paymentActionLabel = (status) =>
   status === "待缴费" ? "支付" : "查看订单";
@@ -474,22 +477,26 @@ const selectOrder = (orderId) => {
 const payOrder = async (orderId) => {
   const order = paymentOrders.value.find((item) => item.id === orderId);
   if (!order) return;
+  const orderNo = order.orderNo || order.id;
+  if (!orderNo) {
+    alert("缺少缴费单号，无法支付");
+    return;
+  }
   
   try {
-    // 模拟支付 API 调用，后端应提供支付确认接口
-    // 这里我们直接更新预约的支付状态
-    await reservationAPI.update(order.dbId, {
-      payment_status: "paid"
+    await financeAPI.callback({
+      order_no: orderNo,
+      status: "paid"
     });
     
-    paymentNotice.value = "支付已提交，等待财务回传确认。";
+    paymentNotice.value = "支付已提交，等待管理员确认。";
     fetchReservations();
     setTimeout(() => {
       paymentNotice.value = "";
     }, 2400);
   } catch (error) {
     console.error("Payment failed:", error);
-    alert("支付提交失败");
+    alert("支付提交失败: " + error.message);
   }
 };
 

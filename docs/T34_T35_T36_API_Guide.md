@@ -164,7 +164,7 @@ async function returnEquipment(reservationId, condition) {
 ## 设备状态流转图（T36）
 
 ```
-预约创建 → 审批通过 → 最终确认
+预约创建 → 审批通过 → 生效
                           ↓
                      EFFECTIVE (已生效)
                           ↓
@@ -190,7 +190,7 @@ async function returnEquipment(reservationId, condition) {
 1. **用户提交预约** → `PENDING`
 2. **审批流程** → `ADVISOR_APPROVED` / `ADMIN_APPROVED` / `HEAD_APPROVED`
 3. **支付确认**（校外）→ `PAID`
-4. **最终确认** → `EFFECTIVE`（已生效，可借出）
+4. **生效** → `EFFECTIVE`（已生效，可借出）
    - 设备状态：`IDLE`（空闲，可预约）
 5. **【借出登记】** → `BORROWED`（已借出）✨ T34
    - 设备状态：`IDLE` → `IN_USE`（使用中）✨ T36
@@ -238,7 +238,7 @@ async function returnEquipment(reservationId, condition) {
 ## 测试建议
 
 1. **正常流程测试**：
-   - 创建预约 → 审批通过 → 最终确认 → 借出 → 归还
+   - 创建预约 → 审批通过 → 生效 → 借出 → 归还
    - 验证设备状态在各阶段的正确性
 
 2. **异常流程测试**：

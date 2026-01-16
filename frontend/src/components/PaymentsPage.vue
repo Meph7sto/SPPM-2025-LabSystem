@@ -5,15 +5,12 @@
         <p class="eyebrow">缴费核验</p>
         <h1>校外缴费确认</h1>
         <p class="lead">
-          财务系统回传支付结果后，管理员执行最终确认才能进入可借出状态。
+          财务系统回传支付结果后，管理员确认缴费并记录预约状态，预约即可进入可借出状态。
         </p>
       </div>
       <div class="page-actions">
         <button type="button" class="ghost" @click="syncAll" :disabled="loading">
           同步财务
-        </button>
-        <button type="button" class="primary" @click="finalizeAll" :disabled="loading || finalConfirmations.length === 0">
-          批量确认
         </button>
       </div>
     </section>
@@ -82,40 +79,6 @@
       </div>
     </section>
 
-    <section class="grid" data-animate style="--delay: 0.2s">
-      <div class="card wide">
-        <div class="card-header">
-          <div>
-            <p class="card-kicker">最终确认</p>
-            <h2>可借出队列</h2>
-          </div>
-          <span class="chip chip-good">{{ finalConfirmations.length }} 条</span>
-        </div>
-        <div class="approval-queue">
-          <div
-            v-for="item in finalConfirmations"
-            :key="item.id"
-            class="approval-card"
-          >
-            <div>
-              <h3>{{ item.title }}</h3>
-              <p>{{ item.detail }}</p>
-              <div class="chip-row">
-                <span class="chip chip-good">缴费成功</span>
-                <span class="chip chip-neutral">{{ item.id }}</span>
-              </div>
-            </div>
-            <div class="approval-actions">
-              <button type="button" class="primary" @click="finalize(item.id)">
-                最终确认
-              </button>
-              <span class="approval-status">{{ item.status }}</span>
-            </div>
-          </div>
-          <p v-if="error" class="form-hint">{{ error }}</p>
-        </div>
-      </div>
-    </section>
   </main>
 </template>
 
@@ -127,7 +90,6 @@ const loading = ref(false);
 const error = ref("");
 
 const paymentReservations = ref([]);
-const finalReservations = ref([]);
 
 const payments = computed(() =>
   paymentReservations.value
@@ -155,18 +117,6 @@ const payments = computed(() =>
     })
 );
 
-const finalConfirmations = computed(() =>
-  finalReservations.value
-    .filter((r) => r.user?.borrower_type === "external")
-    .map((r) => ({
-      id: r.id,
-      title: `校外 · ${r.user?.organization || r.user?.name || "申请人"}`,
-      detail: `${r.device?.model || "设备"} · ${formatDateRange(r.start_time, r.end_time)}`,
-      status: "待确认",
-      raw: r,
-    }))
-);
-
 const statusClass = (status) => {
   if (status === "待确认") return "chip-warn";
   if (status === "已确认") return "chip-good";
@@ -189,15 +139,8 @@ const fetchQueues = async () => {
   loading.value = true;
   error.value = "";
   try {
-    const [paymentRes, finalRes] = await Promise.all([
-      reservationAPI.list(null, 0, 200, { current_step: "payment" }),
-      reservationAPI.list(null, 0, 200, { current_step: "final" }),
-    ]);
+    const paymentRes = await reservationAPI.list(null, 0, 200, { current_step: "payment" });
     paymentReservations.value = paymentRes.data?.items || [];
-    // 仅把已缴费（或无需缴费但走到final的）留给最终确认队列，这里外部只需 paid
-    finalReservations.value = (finalRes.data?.items || []).filter(
-      (r) => r.user?.borrower_type !== "external" || r.payment_status === "paid"
-    );
   } catch (err) {
     console.error("Failed to fetch payment queues:", err);
     error.value = err.message || "缴费队列加载失败";
@@ -253,35 +196,6 @@ const confirmPayment = async (item) => {
   } catch (err) {
     console.error("Failed to confirm payment:", err);
     error.value = err.message || "确认收款失败";
-  } finally {
-    loading.value = false;
-  }
-};
-
-const finalize = async (reservationId) => {
-  loading.value = true;
-  error.value = "";
-  try {
-    await reservationAPI.finalize(reservationId);
-    await fetchQueues();
-  } catch (err) {
-    console.error("Failed to finalize:", err);
-    error.value = err.message || "最终确认失败";
-  } finally {
-    loading.value = false;
-  }
-};
-
-const finalizeAll = async () => {
-  if (finalConfirmations.value.length === 0) return;
-  loading.value = true;
-  error.value = "";
-  try {
-    await Promise.all(finalConfirmations.value.map((r) => reservationAPI.finalize(r.id)));
-    await fetchQueues();
-  } catch (err) {
-    console.error("Failed to finalize all:", err);
-    error.value = err.message || "批量最终确认失败";
   } finally {
     loading.value = false;
   }

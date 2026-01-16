@@ -36,6 +36,9 @@
       v-else-if="mode === 'borrower' && activePage === 'my-reservations'"
       :borrower-role="borrowerRole"
     />
+    <ApprovalsPage
+      v-else-if="mode === 'borrower' && activePage === 'approvals'"
+    />
     <StudentManagementPage
       v-else-if="
         mode === 'borrower' &&
@@ -117,6 +120,9 @@ const notificationCount = ref(0);
 const handleNavigateToReservations = () => {
   activePage.value = "my-reservations";
 };
+const handleNavigateToReservation = () => {
+  activePage.value = "reservation";
+};
 
 const roleMeta = {
   teacher: { label: "校内教师", type: "borrower" },
@@ -189,12 +195,14 @@ onMounted(() => {
 
   // 监听从 ProfileView 触发的导航事件
   window.addEventListener("navigate-to-reservations", handleNavigateToReservations);
+  window.addEventListener("navigate-to-reservation", handleNavigateToReservation);
 
   window.addEventListener("notifications-updated", refreshNotificationCount);
 });
 
 onBeforeUnmount(() => {
   window.removeEventListener("navigate-to-reservations", handleNavigateToReservations);
+  window.removeEventListener("navigate-to-reservation", handleNavigateToReservation);
   window.removeEventListener("notifications-updated", refreshNotificationCount);
 });
 </script>

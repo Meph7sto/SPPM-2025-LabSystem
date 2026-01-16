@@ -47,7 +47,6 @@ class ApprovalStep(str, enum.Enum):
     ADMIN = "admin"                  # 管理员审批环节
     HEAD = "head"                    # 负责人审批环节（仅校外人员）
     PAYMENT = "payment"              # 缴费确认环节
-    FINAL = "final"                  # 最终确认环节（通常指审批流程结束）
 
 
 class Reservation(Base):

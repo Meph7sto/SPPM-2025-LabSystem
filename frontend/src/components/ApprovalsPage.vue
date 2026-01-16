@@ -160,7 +160,6 @@ const stepLabelMap = {
   admin: "管理员审批",
   head: "负责人审批",
   payment: "缴费确认",
-  final: "最终确认",
   available: "可借出",
 };
 
@@ -168,15 +167,14 @@ const stepRoleMap = {
   advisor: "指导教师",
   admin: "设备管理员",
   head: "实验室负责人",
-  payment: "财务系统",
-  final: "设备管理员",
+  payment: "设备管理员",
   available: "实验室",
 };
 
 const chainTemplates = {
-  student: ["advisor", "admin", "final", "available"],
-  teacher: ["admin", "final", "available"],
-  external: ["admin", "head", "payment", "final", "available"],
+  student: ["advisor", "admin", "available"],
+  teacher: ["admin", "available"],
+  external: ["admin", "head", "payment", "available"],
 };
 
 const stats = computed(() => {
@@ -201,7 +199,7 @@ const stats = computed(() => {
 
 const approvals = computed(() => {
   const currentStep =
-    role === "head" ? "head" : "admin";
+    role === "head" ? "head" : (user?.borrower_type === "teacher" ? "advisor" : "admin");
   return reservations.value
     .filter((item) => item.current_step === currentStep)
     .map((item) => toApprovalCard(item))

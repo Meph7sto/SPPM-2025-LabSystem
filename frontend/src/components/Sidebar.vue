@@ -108,6 +108,7 @@ const navItems = computed(() => {
   if (props.borrowerRole === "teacher") {
     return [
       ...borrowerNav.slice(0, 4),
+      { key: "approvals", label: "审批" },
       { key: "students", label: "学生管理" },
       ...borrowerNav.slice(4),
     ];

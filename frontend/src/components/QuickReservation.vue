@@ -28,7 +28,15 @@
         用途
         <input type="text" placeholder="项目编号或实验目标" />
       </label>
-      <button type="button" class="primary">提交申请</button>
+      <button type="button" class="primary" @click="goToReservation">
+        提交申请
+      </button>
     </form>
   </div>
 </template>
+
+<script setup>
+const goToReservation = () => {
+  window.dispatchEvent(new CustomEvent("navigate-to-reservation"));
+};
+</script>

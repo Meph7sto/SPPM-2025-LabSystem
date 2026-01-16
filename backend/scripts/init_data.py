@@ -1,6 +1,6 @@
 import sys
 import os
-from datetime import date
+from datetime import date, datetime, timedelta
 
 # Ensure the backend directory is in the python path
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -10,6 +10,7 @@ sys.path.append(backend_dir)
 from backend.app.db.session import SessionLocal
 from backend.app.models.user import User, UserRole, BorrowerType
 from backend.app.models.device import Device, DeviceStatus
+from backend.app.models.reservation import Reservation, ReservationStatus, ApprovalStep, PaymentStatus
 from backend.app.core.security import hash_password
 
 def init_db_data():
@@ -95,6 +96,40 @@ def init_db_data():
                 )
                 db.add(device)
                 print(f">> 创建设备: {d_data['device_no']} - {d_data['model']}")
+
+        # 5. 创建学生 (Student - 导师为 T1001)
+        student = db.query(User).filter(User.account == "S2023001").first()
+        if not student:
+            student = User(
+                account="S2023001",
+                password_hash=hash_password("student123"),
+                role=UserRole.BORROWER,
+                borrower_type=BorrowerType.STUDENT,
+                name="李同学",
+                contact="13900002001",
+                college="计算机学院",
+                student_no="2023001",
+                advisor_no="1001",  # 关联王教授
+                is_active=True
+            )
+            db.add(student)
+            print(">> 创建学生账号: S2023001 / student123 (导师: 王教授)")
+
+        # 6. 创建校外人员 (External)
+        external = db.query(User).filter(User.account == "ext001").first()
+        if not external:
+            external = User(
+                account="ext001",
+                password_hash=hash_password("ext123"),
+                role=UserRole.BORROWER,
+                borrower_type=BorrowerType.EXTERNAL,
+                name="张工(校外)",
+                contact="13700003001",
+                org_name="xx科技公司",
+                is_active=True
+            )
+            db.add(external)
+            print(">> 创建校外账号: ext001 / ext123")
 
         db.commit()
         print("数据初始化完成！")

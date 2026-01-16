@@ -17,7 +17,7 @@ from ...models.finance import FinancePayment, RefundRecord
 from ...models.maintenance_window import MaintenanceWindow
 from ...models.reservation import Reservation, ReservationStatus, PaymentStatus, ApprovalStep
 from ...models.user import User, UserRole, BorrowerType
-from ...schemas import ReservationCreate, ReservationDetail, ReservationUpdate, ReservationListItem, BorrowRequest, ReturnRequest
+from ...schemas import ReservationCreate, ReservationDetail, ReservationUpdate, ReservationListItem, BorrowRequest, ReturnRequest, ApprovalAction
 from ...services.notifications import (
     notify_approval_result,
     notify_payment_confirmed,
@@ -152,6 +152,21 @@ def _ensure_no_maintenance_conflict(
 ) -> None:
     if _count_maintenance_conflicts(db, device_id, start_time, end_time):
         raise AppError(ErrorCode.CONFLICT, "该设备处于检修时间窗内，无法预约")
+
+
+def _ensure_student_advisor_relation(db: Session, reservation: Reservation) -> None:
+    user = reservation.user or db.get(User, reservation.user_id)
+    if not user or user.borrower_type != BorrowerType.STUDENT:
+        return
+    if not user.advisor_no:
+        raise AppError(ErrorCode.INVALID_REQUEST, "学生未绑定指导教师，无法管理员审批")
+    advisor = db.execute(
+        select(User).where(User.teacher_no == user.advisor_no)
+    ).scalar_one_or_none()
+    if not advisor:
+        raise AppError(ErrorCode.INVALID_REQUEST, "指导教师信息无效，无法管理员审批")
+    if reservation.advisor_id is not None and reservation.advisor_id != advisor.id:
+        raise AppError(ErrorCode.INVALID_REQUEST, "学生与导师关系不匹配，无法管理员审批")
 
 
 def _build_conflict_info(db: Session, reservation: Reservation) -> dict:
@@ -375,10 +390,10 @@ def compute_next_action(reservation: Reservation) -> dict | None:
                 "status": ReservationStatus.ADMIN_APPROVED.value,
                 "current_step": ApprovalStep.HEAD.value,
             }
-        # 校内人员：管理员 -> 终审 (直接通过)
+        # 校内人员：管理员审批后生效
         return {
-            "status": ReservationStatus.APPROVED.value,
-            "current_step": ApprovalStep.FINAL.value,
+            "status": ReservationStatus.EFFECTIVE.value,
+            "current_step": None,
         }
     # 3. 负责人审批 -> 支付/终审
     if step == ApprovalStep.HEAD:
@@ -387,16 +402,10 @@ def compute_next_action(reservation: Reservation) -> dict | None:
             "status": ReservationStatus.HEAD_APPROVED.value,
             "current_step": ApprovalStep.PAYMENT.value,
         }
-    # 4. 支付环节 -> 终审
+    # 4. 支付环节 -> 生效
     if step == ApprovalStep.PAYMENT:
         return {
-            "status": ReservationStatus.APPROVED.value,
-            "current_step": ApprovalStep.FINAL.value,
-        }
-    # 5. 终审环节 -> 结束 (Approved)
-    if step == ApprovalStep.FINAL:
-        return {
-            "status": ReservationStatus.APPROVED.value,
+            "status": ReservationStatus.EFFECTIVE.value,
             "current_step": None,
         }
     return None
@@ -656,7 +665,7 @@ def list_reservations(
 @router.post("/{reservation_id}/payment/sync", response_model=dict)
 def sync_payment_status(
     reservation_id: int,
-    current_user: User = Depends(require_roles(UserRole.ADMIN, UserRole.HEAD)),
+    current_user: User = Depends(require_roles(UserRole.ADMIN)),
     db: Session = Depends(get_db),
 ) -> dict:
     """从财务系统同步缴费确认（T29）。"""
@@ -692,8 +701,8 @@ def sync_payment_status(
         reservation.payment_status = PaymentStatus.PAID
         reservation.payment_time = fp.paid_time
         if reservation.current_step == ApprovalStep.PAYMENT:
-            reservation.status = ReservationStatus.APPROVED
-            reservation.current_step = ApprovalStep.FINAL
+            reservation.status = ReservationStatus.EFFECTIVE
+            reservation.current_step = None
         if old_payment_status != PaymentStatus.PAID:
             notify_payment_confirmed(
                 db,
@@ -705,47 +714,6 @@ def sync_payment_status(
     db.commit()
     db.refresh(reservation)
     return ok(ReservationDetail.model_validate(reservation).model_dump(), message="已同步财务状态")
-
-
-@router.post("/{reservation_id}/finalize", response_model=dict)
-def finalize_reservation(
-    reservation_id: int,
-    current_user: User = Depends(require_roles(UserRole.ADMIN)),
-    db: Session = Depends(get_db),
-) -> dict:
-    """管理员最终确认：缴费确认成功后才能进入“已生效/可借出”（T32）。"""
-    _begin_reservation_transaction(db)
-    reservation = db.get(Reservation, reservation_id)
-    if not reservation:
-        raise NotFoundError(f"预约不存在 (id={reservation_id})")
-    _lock_device(db, reservation.device_id)
-
-    if reservation.current_step != ApprovalStep.FINAL:
-        raise AppError(ErrorCode.INVALID_REQUEST, "当前预约不在最终确认步骤")
-
-    if reservation.user and reservation.user.borrower_type == BorrowerType.EXTERNAL:
-        if reservation.payment_status != PaymentStatus.PAID:
-            raise AppError(ErrorCode.INVALID_REQUEST, "校外预约必须缴费成功后才能最终确认")
-
-    _ensure_no_blocking_conflict(
-        db,
-        reservation.device_id,
-        reservation.start_time,
-        reservation.end_time,
-        exclude_id=reservation.id,
-    )
-    _ensure_no_maintenance_conflict(
-        db,
-        reservation.device_id,
-        reservation.start_time,
-        reservation.end_time,
-    )
-
-    reservation.status = ReservationStatus.EFFECTIVE
-    reservation.current_step = None
-    db.commit()
-    db.refresh(reservation)
-    return ok(ReservationDetail.model_validate(reservation).model_dump(), message="最终确认成功")
 
 
 @router.post("/{reservation_id}/cancel", response_model=dict)
@@ -827,6 +795,124 @@ def cancel_reservation_with_refund(
     )
 
 
+@router.post("/{reservation_id}/approve", response_model=dict)
+def approve_reservation(
+    reservation_id: int,
+    payload: ApprovalAction,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    """
+    执行审批操作（导师/管理员/负责人）。
+    根据当前审批步骤和用户角色进行权限校验。
+    """
+    _begin_reservation_transaction(db)
+    reservation = db.get(Reservation, reservation_id)
+    if not reservation:
+        raise NotFoundError(f"预约不存在 (id={reservation_id})")
+    
+    _lock_device(db, reservation.device_id)
+    
+    # 权限校验
+    step = reservation.current_step
+    if not step:
+        raise AppError(ErrorCode.INVALID_REQUEST, "该预约当前不处于任何审批环节")
+    
+    # 1. 导师审批环节
+    if step == ApprovalStep.ADVISOR:
+        applicant = db.get(User, reservation.user_id)
+        if not (current_user.borrower_type == BorrowerType.TEACHER and applicant and applicant.advisor_no == current_user.teacher_no):
+            raise AppError(ErrorCode.PERMISSION_DENIED, "仅该学生的指导教师可进行导师审批")
+    
+    # 2. 管理员审批环节
+    elif step == ApprovalStep.ADMIN:
+        if current_user.role != UserRole.ADMIN:
+            raise AppError(ErrorCode.PERMISSION_DENIED, "仅系统管理员可进行管理员审批")
+        if payload.action == "approve":
+            _ensure_student_advisor_relation(db, reservation)
+            
+    # 3. 负责人审批环节
+    elif step == ApprovalStep.HEAD:
+        if current_user.role != UserRole.HEAD:
+            raise AppError(ErrorCode.PERMISSION_DENIED, "仅实验室负责人可进行负责人审批")
+    
+    else:
+         raise AppError(ErrorCode.PERMISSION_DENIED, f"当前步骤 {step.value} 不支持通过此接口审批")
+
+    # 处理审批动作
+    if payload.action == "approve":
+        # 计算下一步
+        next_actions = compute_next_action(reservation)
+        if not next_actions:
+             reservation.status = ReservationStatus.EFFECTIVE
+             reservation.current_step = None
+        else:
+             reservation.status = ReservationStatus(next_actions["status"])
+             reservation.current_step = (
+                 ApprovalStep(next_actions["current_step"])
+                 if next_actions["current_step"]
+                 else None
+             )
+        
+        # 记录审批记录
+        if step == ApprovalStep.ADVISOR:
+            reservation.advisor_id = current_user.id
+            reservation.advisor_approval_time = func.now()
+            reservation.advisor_comment = payload.comment
+        elif step == ApprovalStep.ADMIN:
+            reservation.approver_id = current_user.id
+            reservation.approval_time = func.now()
+            reservation.approval_comment = payload.comment
+        elif step == ApprovalStep.HEAD:
+            reservation.head_id = current_user.id
+            reservation.head_approval_time = func.now()
+            reservation.head_comment = payload.comment
+
+        # 执行业务规则检查
+        _ensure_no_blocking_conflict(db, reservation.device_id, reservation.start_time, reservation.end_time, exclude_id=reservation.id)
+        _ensure_no_maintenance_conflict(db, reservation.device_id, reservation.start_time, reservation.end_time)
+        
+        priority_rejected = _apply_priority_resolution(db, reservation, actor_user_id=current_user.id)
+        if not priority_rejected:
+            _ensure_finance_payment(db, reservation)
+
+    elif payload.action == "reject":
+        reservation.status = ReservationStatus.REJECTED
+        reservation.current_step = None
+        if step == ApprovalStep.ADVISOR:
+            reservation.advisor_comment = payload.comment
+        elif step == ApprovalStep.ADMIN:
+            reservation.approval_comment = payload.comment
+        elif step == ApprovalStep.HEAD:
+            reservation.head_comment = payload.comment
+            
+    elif payload.action == "return":
+        reservation.status = ReservationStatus.RETURNED
+        # 保持 current_step 不变，用户修改后重新提交依然回到这里
+        if step == ApprovalStep.ADVISOR:
+            reservation.advisor_comment = payload.comment
+        elif step == ApprovalStep.ADMIN:
+            reservation.approval_comment = payload.comment
+        elif step == ApprovalStep.HEAD:
+            reservation.head_comment = payload.comment
+    else:
+        raise AppError(ErrorCode.INVALID_REQUEST, f"不支持的审批动作: {payload.action}")
+
+    # 发送通知
+    status_flag = "approved" if payload.action == "approve" else payload.action
+    notify_approval_result(
+        db,
+        to_user_id=reservation.user_id,
+        reservation_id=reservation.id,
+        status=status_flag,
+        from_user_id=current_user.id,
+    )
+
+    db.commit()
+    db.refresh(reservation)
+    return ok(ReservationDetail.model_validate(reservation).model_dump(), message="审批成功")
+
+
 @router.put("/{reservation_id}", response_model=dict)
 def update_reservation(
     reservation_id: int,
@@ -852,11 +938,19 @@ def update_reservation(
     
     is_admin = current_user.role in [UserRole.ADMIN, UserRole.HEAD]
     is_owner = reservation.user_id == current_user.id
-    old_status = reservation.status
     
-    if not (is_admin or is_owner):
+    # 额外检查：是否为申请人的导师
+    is_advisor = False
+    if current_user.borrower_type == BorrowerType.TEACHER:
+        applicant = db.get(User, reservation.user_id)
+        if applicant and applicant.advisor_no == current_user.teacher_no:
+            is_advisor = True
+
+    if not (is_admin or is_owner or is_advisor):
         raise AppError(ErrorCode.PERMISSION_DENIED, "无权修改该预约")
         
+    old_status = reservation.status
+    old_current_step = reservation.current_step
     update_data = payload.model_dump(exclude_unset=True)
     
     if not is_admin:
@@ -867,13 +961,23 @@ def update_reservation(
         
         # 2. 字段白名单过滤
         allowed_fields = {"start_time", "end_time", "description", "status", "contact"}
+        if is_advisor:
+             # 导师作为审批人，允许修改状态以执行审批动作
+             allowed_fields.add("status")
+             allowed_fields.add("current_step")
+             allowed_fields.add("advisor_comment")
+
         for key in list(update_data.keys()):
             if key not in allowed_fields:
                 del update_data[key]
         
-        # 3. 状态限制：只能改为 CANCELLED
-        if "status" in update_data and update_data["status"] != ReservationStatus.CANCELLED:
-            raise AppError(ErrorCode.PERMISSION_DENIED, "只能执行取消操作")
+        # 3. 状态限制
+        if "status" in update_data:
+             if is_owner and update_data["status"] != ReservationStatus.CANCELLED:
+                  raise AppError(ErrorCode.PERMISSION_DENIED, "申请人只能执行取消操作")
+             # 导师审批权限在 approve_reservation 中有更精细化控制建议通过该接口，
+             # update_reservation 保持基本角色放行即可
+
 
     # 执行更新
     for key, value in update_data.items():
@@ -883,10 +987,26 @@ def update_reservation(
     target_status_value = target_status.value if isinstance(target_status, ReservationStatus) else str(target_status)
     target_start = update_data.get("start_time", reservation.start_time)
     target_end = update_data.get("end_time", reservation.end_time)
+
+    if (
+        old_current_step == ApprovalStep.ADMIN
+        and "status" in update_data
+        and target_status_value not in [
+            ReservationStatus.CANCELLED.value,
+            ReservationStatus.REJECTED.value,
+            ReservationStatus.RETURNED.value,
+        ]
+    ):
+        _ensure_student_advisor_relation(db, reservation)
+
     should_check_conflict = (
         "start_time" in update_data
         or "end_time" in update_data
         or target_status_value in BLOCKING_STATUS_VALUES
+        or (
+            old_current_step == ApprovalStep.ADMIN
+            and target_status_value == ReservationStatus.ADMIN_APPROVED.value
+        )
     )
     if should_check_conflict and target_status_value != ReservationStatus.CANCELLED.value:
         _ensure_no_blocking_conflict(

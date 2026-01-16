@@ -93,7 +93,6 @@ def _step_label(step) -> str:
         ApprovalStep.ADMIN: "管理员审批",
         ApprovalStep.HEAD: "负责人审批",
         ApprovalStep.PAYMENT: "缴费确认",
-        ApprovalStep.FINAL: "最终确认",
     }
     return mapping.get(step, str(step))
 

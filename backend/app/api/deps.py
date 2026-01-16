@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 import jwt
@@ -14,6 +14,7 @@ _auth_scheme = HTTPBearer()
 
 
 def get_current_user(
+    request: Request,
     credentials: HTTPAuthorizationCredentials = Depends(_auth_scheme),
     db: Session = Depends(get_db),
 ) -> User:
@@ -60,6 +61,23 @@ def get_current_user(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid credentials",
         )
+
+    # 简单局域网校验 (非严格): 只允许 127.0.0.1, 192.168.x.x, 10.x.x.x, 172.x.x.x
+    if user.role in [UserRole.ADMIN, UserRole.HEAD]:
+        ip = request.client.host
+        is_lan = (
+            ip == "127.0.0.1" or 
+            ip == "::1" or 
+            ip.startswith("192.168.") or 
+            ip.startswith("10.") or 
+            ip.startswith("172.")
+        )
+        if not is_lan:
+             raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="工作人员只能在局域网内访问",
+            )
+
     return user
 
 

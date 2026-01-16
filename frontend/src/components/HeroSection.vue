@@ -15,8 +15,7 @@
         <span class="ribbon-step active">提交</span>
         <span class="ribbon-step">冲突校验</span>
         <span class="ribbon-step">审批链</span>
-        <span class="ribbon-step">缴费</span>
-        <span class="ribbon-step">最终确认</span>
+        <span class="ribbon-step">缴费确认</span>
         <span class="ribbon-step">借出</span>
       </div>
     </div>

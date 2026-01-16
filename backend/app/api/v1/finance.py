@@ -12,7 +12,7 @@ from ...core.errors import AppError, ErrorCode, NotFoundError
 from ...core.response import ok
 from ...db.session import get_db
 from ...models.finance import FinancePayment
-from ...models.reservation import Reservation, PaymentStatus, ApprovalStep, ReservationStatus
+from ...models.reservation import Reservation, PaymentStatus
 from ...models.user import UserRole
 from ..deps import require_roles
 from ...services.notifications import notify_payment_confirmed
@@ -58,14 +58,10 @@ def _apply_finance_status_to_reservation(
     finance_payment.status = status
     finance_payment.paid_time = paid_time
 
-    # 仅在缴费成功时推进预约（T32 前置条件）
+    # 仅在缴费成功时更新支付信息
     if status == "paid":
         reservation.payment_status = PaymentStatus.PAID
         reservation.payment_time = paid_time
-
-        if reservation.current_step == ApprovalStep.PAYMENT:
-            reservation.status = ReservationStatus.APPROVED
-            reservation.current_step = ApprovalStep.FINAL
         notify_payment_confirmed(
             db,
             to_user_id=reservation.user_id,

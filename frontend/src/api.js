@@ -215,15 +215,6 @@ export const reservationAPI = {
     },
 
     /**
-     * 管理员最终确认
-     */
-    async finalize(id) {
-        return await request(`/reservations/${id}/finalize`, {
-            method: "POST",
-        });
-    },
-
-    /**
      * 撤销（含95%退款逻辑）
      */
     async cancel(id) {

@@ -145,6 +145,8 @@ class ReservationListItem(BaseModel):
     end_time: datetime
     status: ReservationStatus
     payment_status: PaymentStatus
+    payment_amount: float
+    payment_order_no: str | None
     current_step: ApprovalStep | None
     description: str | None
     contact: str | None
