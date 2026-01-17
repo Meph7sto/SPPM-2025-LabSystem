@@ -50,6 +50,7 @@
           </div>
         </div>
       </div>
+      <ReportDesignCard />
     </section>
   </main>
 </template>
@@ -57,6 +58,7 @@
 <script setup>
 import { ref, onMounted } from "vue";
 import ReportsSection from "./ReportsSection.vue";
+import ReportDesignCard from "./ReportDesignCard.vue";
 import { reportAPI } from "../api";
 
 const loading = ref(true);
@@ -71,8 +73,10 @@ const fetchData = async () => {
       reportAPI.summary(),
       reportAPI.listGenerated()
     ]);
-    summaryStats.value = summary.data;
-    generatedReports.value = reports.data;
+    const summaryData = summary?.data ?? summary;
+    const reportsData = reports?.data ?? reports;
+    summaryStats.value = summaryData;
+    generatedReports.value = Array.isArray(reportsData) ? reportsData : [];
   } catch (error) {
     console.error("Failed to fetch reports:", error);
     alert(error.message);
